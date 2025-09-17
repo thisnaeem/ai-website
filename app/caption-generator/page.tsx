@@ -26,6 +26,9 @@ export default function CaptionGenerator() {
   const [includeLink, setIncludeLink] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   
+  // Auto mode functionality
+  const [autoMode, setAutoMode] = useState(false);
+  
   // Individual comment generation
   const [generatingComments, setGeneratingComments] = useState<{[key: number]: boolean}>({});
   
@@ -37,6 +40,7 @@ export default function CaptionGenerator() {
     const savedCaptionCount = localStorage.getItem('caption-generator-captionCount');
     const savedIncludeLink = localStorage.getItem('caption-generator-includeLink');
     const savedLinkUrl = localStorage.getItem('caption-generator-linkUrl');
+    const savedAutoMode = localStorage.getItem('caption-generator-autoMode');
     
     if (savedPlatform) setPlatform(savedPlatform as Platform);
     if (savedTopic) setSelectedTopic(savedTopic as Topic);
@@ -44,6 +48,7 @@ export default function CaptionGenerator() {
     if (savedCaptionCount) setCaptionCount(parseInt(savedCaptionCount));
     if (savedIncludeLink) setIncludeLink(savedIncludeLink === 'true');
     if (savedLinkUrl) setLinkUrl(savedLinkUrl);
+    if (savedAutoMode) setAutoMode(savedAutoMode === 'true');
   }, []);
   
   // Save state to localStorage whenever values change
@@ -70,6 +75,10 @@ export default function CaptionGenerator() {
   useEffect(() => {
     localStorage.setItem('caption-generator-linkUrl', linkUrl);
   }, [linkUrl]);
+  
+  useEffect(() => {
+    localStorage.setItem('caption-generator-autoMode', autoMode.toString());
+  }, [autoMode]);
 
   const topics: Topic[] = ['Jobs', 'Princess leonar', 'USA girl', 'sheikha mahira'];
   const postTypes: PostType[] = ['profile post', 'group post', 'page post'];
@@ -116,7 +125,7 @@ export default function CaptionGenerator() {
           platform,
           topic: selectedTopic,
           postType: selectedPostType,
-          captionCount,
+          captionCount: autoMode ? 1 : captionCount,
           includeLink,
           linkUrl: includeLink ? linkUrl : undefined,
           generateComments: true
@@ -189,10 +198,17 @@ export default function CaptionGenerator() {
     }
   };
 
-  const copyToClipboard = async (text: string) => {
+  const copyToClipboard = async (text: string, isCaption: boolean = false) => {
     try {
       await navigator.clipboard.writeText(text);
       // You could add a toast notification here
+      
+      // Auto-generate new caption if auto mode is enabled and a caption was copied
+      if (autoMode && isCaption && !isGenerating) {
+        setTimeout(() => {
+          generateCaptions();
+        }, 500); // Small delay to show the copy action completed
+      }
     } catch (err) {
       console.error('Failed to copy text: ', err);
     }
@@ -344,11 +360,42 @@ export default function CaptionGenerator() {
               </div>
             </div>
 
+            {/* Auto Mode Toggle */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-700">
+                  Auto Mode
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setAutoMode(!autoMode)}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                    autoMode
+                      ? 'bg-[var(--primary-highlight)] focus:ring-[var(--primary-highlight)]'
+                      : 'bg-gray-200 focus:ring-gray-500'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      autoMode ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                {autoMode 
+                  ? 'Automatically generates 1 caption and creates a new one when copied'
+                  : 'Manually select number of captions to generate'
+                }
+              </p>
+            </div>
+
             {/* Caption Count Slider */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-4">
-                Number of Captions: <span className="font-semibold text-gray-900">{captionCount}</span>
-              </label>
+            {!autoMode && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-4">
+                  Number of Captions: <span className="font-semibold text-gray-900">{captionCount}</span>
+                </label>
               <div className="relative">
                 <input
                   type="range"
@@ -387,7 +434,8 @@ export default function CaptionGenerator() {
                   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
                 }
               `}</style>
-            </div>
+              </div>
+            )}
 
             {/* Link Toggle */}
             <div>
@@ -456,7 +504,7 @@ export default function CaptionGenerator() {
                         <div className="bg-gray-50 rounded-md p-3">
                           <p className="text-gray-700 mb-3">{caption}</p>
                           <button
-                            onClick={() => copyToClipboard(caption)}
+                            onClick={() => copyToClipboard(caption, true)}
                             className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-semibold rounded-md transition-all duration-200 hover:transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2"
                             style={{ 
                               backgroundColor: 'var(--primary-highlight)', 

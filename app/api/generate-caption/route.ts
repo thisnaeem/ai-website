@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     const generatedText = data.candidates[0].content.parts[0].text;
     
     // Parse the response to extract captions and comment
-    const parsedContent = parseGeneratedContent(generatedText, postType, !!specificCaption);
+    const parsedContent = parseGeneratedContent(generatedText, postType, !!specificCaption, topic, includeLink, linkUrl, generateComments);
     
     return NextResponse.json(parsedContent);
   } catch (error) {
@@ -142,87 +142,89 @@ COMMENT: [your comment here]`;
   
   // Special handling for Princess Leonor topic
   if (topic === 'Princess leonar') {
-    const leonorTemplate = `Generate ${captionCount} captions about Princess Leonor of Spain in this EXACT format:
+    const leonorTemplate = `Generate EXACTLY ${captionCount} Princess Leonor captions. ${postType === 'group post' ? 'Do NOT generate comments for group posts.' : ''}
 
-👑 Princess Leonor stuns Spain with her royal elegance…
-Her latest appearance has everyone talking 💃✨
-📸 Leonor's Stunning Look 👇
-👉 Link: ${includeLink && linkUrl ? linkUrl : 'https://cutt.ly/2rHurZRL'}
-🎁 Full story in 1st Comment 👇
+Format for each caption:
+👑 [Princess Leonor hook about royal elegance/fashion/duties]
+${includeLink && linkUrl ? 'See More: ' + linkUrl + '\n' : ''}💃 [Description about her appearance/transformation] ✨
+📸 [Photo reference line] 👇
+${postType !== 'group post' ? '🎁 Full story in 1st Comment 👇' : ''}
 
 Requirements:
-- Use emojis (👑, 💃, ✨, 📸, 👇, 👉, 🎁)
-- Keep the same structure: hook line, description, photo line, link line, comment line
-- Vary the content but maintain the format
+- Generate EXACTLY ${captionCount} caption(s) - no more, no less
 - Topics: royal elegance, transformation, fashion, royal duties, style, ceremonies, talents
-${generateComments ? '\n- Generate attractive comments like: "👑 Everyone is asking: Is Leonor the most beautiful princess in Europe? 💖\n👉 See the rare proof yourself: ' + (includeLink && linkUrl ? linkUrl : 'https://cutt.ly/2rHurZRL') + '"' : ''}
+- CTAs for links: See More, Read Full Story, View Photos, Learn More
+- Use emojis: 👑, 💃, ✨, 📸, 👇, 🎁
+${generateComments && postType !== 'group post' ? '\n- Generate ONE-LINE comments like: "👑 Everyone is asking: Is Leonor the most beautiful princess in Europe? 💖"' : ''}
 
-Format your response as follows:`;
+${captionCount === 1 ? 'Generate 1 caption only.' : `Generate ${captionCount} captions numbered 1, 2, 3, etc.`}`;
     return leonorTemplate;
   }
   
   // Special handling for USA Girls topic
    if (topic === 'USA girl') {
-     const usaGirlsTemplate = `Generate ${captionCount} captions about USA/European/Russian girls (ages 20-40) in this EXACT format:
+     const usaGirlsTemplate = `Generate EXACTLY ${captionCount} USA/European/Russian girls captions. ${postType === 'group post' ? 'Do NOT generate comments for group posts.' : ''}
 
-💖 Hi, I'm 22 from USA 🇺🇸
-I don't care if you're poor or rich, I just need a good boyfriend who truly loves me 💕
-➡️ Apply Now: ${includeLink && linkUrl ? linkUrl : 'https://cutt.ly/OrHutuaR'}
+Format for each caption:
+💖 Hi, I'm [age] from [country] [flag]
+${includeLink && linkUrl ? 'Contact Me: ' + linkUrl + '\n' : ''}[Emotional message about looking for love/relationship] 💕
+➡️ [Call to action]!
 
 Requirements:
-- Use emojis (💖, 🇺🇸, 💕, ➡️, 💔, 👩‍🦱, 🌸, etc.)
+- Generate EXACTLY ${captionCount} caption(s) - no more, no less
 - Ages 20-40 with variation
-- Include: single, divorced, widow, single mom scenarios
-- Countries: USA, Europe, Russia
+- Countries: USA 🇺🇸, Europe, Russia
+- Scenarios: single, divorced, widow, single mom
+- CTAs for links: Contact Me, Talk to Me, Message Me, Connect Here
 - Emotional tone: direct, honest, vulnerable
-- Call-to-action: Apply Now, Contact, Talk to Me, etc.
-${generateComments ? '\n- Generate WhatsApp-style comments like: "💬 She\'s online now… Send her a quick Hi ❤️\n👉 ' + (includeLink && linkUrl ? linkUrl : 'https://cutt.ly/OrHutuaR') + '"' : ''}
+- Use emojis: 💖, 🇺🇸, 💕, ➡️, 💔, 👩‍🦱, 🌸
+${generateComments && postType !== 'group post' ? '\n- Generate ONE-LINE comments like: "💬 She\'s online now… Send her a quick Hi ❤️"' : ''}
 
-Format your response as follows:`;
+${captionCount === 1 ? 'Generate 1 caption only.' : `Generate ${captionCount} captions numbered 1, 2, 3, etc.`}`;
      return usaGirlsTemplate;
    }
    
    // Special handling for Sheikha Mahira topic
    if (topic === 'sheikha mahira') {
-     const mahiraTemplate = `Generate ${captionCount} captions about Sheikha Mahira Dubai Queen lifestyle in this EXACT format:
+     const mahiraTemplate = `Generate EXACTLY ${captionCount} Sheikha Mahira Dubai Queen captions. ${postType === 'group post' ? 'Do NOT generate comments for group posts.' : ''}
 
-👑 Dubai Queen Mahira Lifestyle Uncovered 👇
-${includeLink && linkUrl ? linkUrl : 'https://cutt.ly/2rHurZRL'}
-👆🎁 𝐂𝐡𝐞𝐜𝐤 𝐅𝐢𝐫𝐬𝐭 𝐂𝐨𝐦𝐦𝐞𝐧𝐭 📣👇
-From private yachts 🛥️ to Burj Khalifa nights 🌃—Mahira is living every girl's dream 💖✨ #DubaiQueen #Mahira
+Format for each caption:
+👑 [Dubai Queen Mahira lifestyle title] 👇
+${includeLink && linkUrl ? 'Watch Now: ' + linkUrl + '\n' : ''}${postType !== 'group post' ? '👆🎁 𝐂𝐡𝐞𝐜𝐤 𝐅𝐢𝐫𝐬𝐭 𝐂𝐨𝐦𝐦𝐞𝐧𝐭 📣👇\n' : ''}[Description about Dubai luxury lifestyle] 💖✨ #DubaiQueen #Mahira
 
 Requirements:
-- Use emojis (👑, 💎, ✨, 🌃, 🛥️, 🚘, 💖, 👇, 👆, 🎁, 📣)
-- Structure: Title with 👇 → Link → Check First Comment line → Description with hashtags
+- Generate EXACTLY ${captionCount} caption(s) - no more, no less
 - Topics: Dubai lifestyle, luxury cars, yachts, Burj Khalifa, gold markets, royal charm, glamour
-- Bold styled text: 𝐂𝐡𝐞𝐜𝐤 𝐅𝐢𝐫𝐬𝐭 𝐂𝐨𝐦𝐦𝐞𝐧𝐭, 𝐅𝐮𝐥𝐥 𝐒𝐭𝐨𝐫𝐲, 𝐑𝐚𝐫𝐞 𝐒𝐭𝐨𝐫𝐲, 𝐒𝐞𝐞 𝐇𝐞𝐫 𝐉𝐨𝐮𝐫𝐧𝐞𝐲
+- CTAs for links: Watch Now, See Full Story, View Gallery, Discover More
+- Bold text: 𝐂𝐡𝐞𝐜𝐤 𝐅𝐢𝐫𝐬𝐭 𝐂𝐨𝐦𝐦𝐞𝐧𝐭, 𝐅𝐮𝐥𝐥 𝐒𝐭𝐨𝐫𝐲, 𝐑𝐚𝐫𝐞 𝐒𝐭𝐨𝐫𝐲
 - Hashtags: #DubaiQueen #Mahira #QueenMahira #DubaiLife #MahiraStyle #MahiraQueen
-${generateComments ? '\n- Generate Dubai lifestyle comments like: "🌟 Mahira\'s Dubai secrets revealed! From gold shopping to royal parties 👑\n👉 Full story: ' + (includeLink && linkUrl ? linkUrl : 'https://cutt.ly/2rHurZRL') + '"' : ''}
+- Use emojis: 👑, 💎, ✨, 🌃, 🛥️, 🚘, 💖, 👇, 👆, 🎁, 📣
+${generateComments && postType !== 'group post' ? '\n- Generate ONE-LINE comments like: "🌟 Mahira\'s Dubai secrets revealed! From gold shopping to royal parties 👑"' : ''}
 
-Format your response as follows:`;
+${captionCount === 1 ? 'Generate 1 caption only.' : `Generate ${captionCount} captions numbered 1, 2, 3, etc.`}`;
      return mahiraTemplate;
    }
    
    // Special handling for Jobs topic
    if (topic === 'Jobs') {
-     const jobsTemplate = `Generate ${captionCount} captions about job opportunities abroad in this EXACT format:
+     const jobsTemplate = `Generate EXACTLY ${captionCount} job captions. ${postType === 'group post' ? 'Do NOT generate comments for group posts.' : ''}
 
-🍎 Farm Workers Needed – Canada & New Zealand
-🆓 Free Visa + 🏠 Accommodation Provided
-🚜 Apple Picking | Dairy Farm | Vegetable Packing
-⚡ Limited Seats – Apply Fast!
-👉 Apply Now!
+Format for each caption:
+🍎 [Job Title] – [Country/Location]
+${includeLink && linkUrl ? 'Apply Now: ' + linkUrl + '\n' : ''}🆓 Free Visa + 🏠 Accommodation Provided
+🚜 [Job Types]
+⚡ [Urgency Message]
 
 Requirements:
-- Use emojis (🍎, 🆓, 🏠, 🚜, ⚡, 👉, 🏗️, 👷, 🍽️, 👨‍🍳, 🏭, 📦, 🚚, 💵)
-- Structure: Job title with location → Free benefits → Job types → Urgency → Call to action
+- Generate EXACTLY ${captionCount} caption(s) - no more, no less
 - Job categories: Farm Workers, Construction, Restaurant/Hotel, Factory/Warehouse, Driver jobs
-- Benefits: Free Visa, Accommodation, Meals, Good Salary, Training
 - Countries: Canada, New Zealand, Australia, Dubai, Qatar, UAE, UK, Europe
-- Urgency phrases: Limited Seats, Apply Fast, Urgent Hiring, Don\'t Miss Out
-${generateComments ? '\n- Generate job application comments like: "✅ Life-changing opportunity for jobs abroad!\n👉 Apply Here: ' + (includeLink && linkUrl ? linkUrl : 'https://cutt.ly/CrHsF9xC') + '"' : ''}
+- Benefits: Free Visa, Accommodation, Meals, Good Salary, Training
+- CTAs for links: Apply Now, Apply Here, Get Job, Start Application
+- Urgency: Limited Seats, Apply Fast, Urgent Hiring, Don't Miss Out
+${generateComments && postType !== 'group post' ? '\n- Generate ONE-LINE comments like: "✅ Life-changing opportunity for jobs abroad!"' : ''}
 
-Format your response as follows:`;
+${captionCount === 1 ? 'Generate 1 caption only.' : `Generate ${captionCount} captions numbered 1, 2, 3, etc.`}`;
      return jobsTemplate;
    }
   
@@ -254,7 +256,7 @@ ${captionCount > 4 ? `5. [Fifth caption]\n${generateComments ? '**COMMENT 5:** [
 Make sure each caption is unique, engaging, and appropriate for the platform and topic.`;
 }
 
-function parseGeneratedContent(text: string, postType: PostType, isSpecificComment: boolean = false) {
+function parseGeneratedContent(text: string, postType: PostType, isSpecificComment: boolean = false, topic?: Topic, includeLink: boolean = false, linkUrl?: string, generateComments: boolean = false) {
   // Handle specific comment generation
   if (isSpecificComment) {
     const commentMatch = text.match(/COMMENT:\s*(.+)/i);
@@ -374,15 +376,35 @@ function parseGeneratedContent(text: string, postType: PostType, isSpecificComme
     }
   }
   
-  // Generate default comments if none were found but captions exist
-  if (captions.length > 0 && comments.length === 0) {
+  // Generate default comments if none were found but captions exist (NOT for group posts)
+  if (captions.length > 0 && comments.length === 0 && postType !== 'group post' && generateComments) {
+    // Generate topic-specific default comments
+    const defaultComments = {
+      'Princess leonar': '👑 Everyone is asking: Is Leonor the most beautiful princess in Europe? 💖',
+      'USA girl': '💬 She\'s online now… Send her a quick Hi ❤️',
+      'sheikha mahira': '🌟 Mahira\'s Dubai secrets revealed! From gold shopping to royal parties 👑',
+      'Jobs': '✅ Life-changing opportunity for jobs abroad!'
+    };
+    
     for (let i = 0; i < captions.length; i++) {
-      comments.push(`Great post! 👍 What do you think about this? 💭`);
+      let defaultComment = defaultComments[topic as keyof typeof defaultComments] || 'Great opportunity! Don\'t miss out! 🔥';
+      if (includeLink && linkUrl) {
+        defaultComment += '\n👉 ' + linkUrl;
+      }
+      comments.push(defaultComment);
+    }
+  }
+  
+  // Ensure we have equal number of comments and captions (NOT for group posts)
+  if (postType !== 'group post') {
+    while (comments.length < captions.length) {
+      const lastComment = comments[comments.length - 1] || 'Amazing! What do you think? 💭';
+      comments.push(lastComment);
     }
   }
   
   return {
     captions: captions.filter(caption => caption.length > 0),
-    comments: comments.length > 0 ? comments : undefined
+    comments: (comments.length > 0 && postType !== 'group post') ? comments : undefined
   };
 }
