@@ -19,7 +19,7 @@ interface GenerateRequest {
 export async function POST(request: NextRequest) {
   try {
     const { 
-      apiKey, 
+      apiKey,  
       platform, 
       topic, 
       postType, 
