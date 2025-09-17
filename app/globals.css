@@ -8,8 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-figtree);
+  --font-mono: var(--font-figtree);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,5 +22,117 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-figtree), Arial, Helvetica, sans-serif;
+}
+
+.font-figtree {
+  font-family: var(--font-figtree), Arial, Helvetica, sans-serif;
+}
+
+/* Primary highlight color */
+:root {
+  --primary-highlight: #c8f300;
+  --primary-highlight-hover: #b8e300;
+  --primary-highlight-light: rgba(200, 243, 0, 0.1);
+}
+
+/* Input and Select Styling */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+select,
+textarea {
+  background-color: #ffffff !important;
+  color: #1f2937 !important;
+  border-color: #d1d5db !important;
+  transition: all 0.2s ease-in-out;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+  background-color: #f9fafb !important;
+  color: #111827 !important;
+  border-color: var(--primary-highlight) !important;
+  box-shadow: 0 0 0 3px var(--primary-highlight-light) !important;
+  outline: none;
+}
+
+/* Placeholder text */
+input::placeholder,
+textarea::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Select dropdown options */
+select option {
+  background-color: #ffffff !important;
+  color: #1f2937 !important;
+}
+
+/* Button styles */
+.btn-primary {
+  background-color: var(--primary-highlight);
+  color: #1f2937;
+  border: none;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-highlight-hover);
+  transform: translateY(-1px);
+}
+
+.btn-primary:focus {
+  box-shadow: 0 0 0 3px var(--primary-highlight-light);
+  outline: none;
+}
+
+/* Navigation styles */
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  font-weight: 500;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease-in-out;
+  text-decoration: none;
+}
+
+.nav-item--inactive {
+  color: #374151;
+  background-color: transparent;
+}
+
+.nav-item--inactive:hover {
+  background-color: #f3f4f6;
+  color: #111827;
+}
+
+.nav-item--active {
+  background-color: var(--primary-highlight);
+  color: #000000;
+  border-radius: 0.75rem;
+}
+
+/* Link styles */
+a {
+  color: #6b7280;
+  text-decoration: none;
+  transition: color 0.2s ease-in-out;
+}
+
+a:hover {
+  color: #374151;
+}
+
+/* Modern card styling */
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
 }
