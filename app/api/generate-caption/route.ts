@@ -13,7 +13,7 @@ interface GenerateRequest {
   generateComments?: boolean;
   includeLink?: boolean;
   linkUrl?: string;
-  specificCaption?: string;
+  specificCaption?: string; 
 }
 
 export async function POST(request: NextRequest) {
