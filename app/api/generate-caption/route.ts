@@ -275,7 +275,7 @@ function parseGeneratedContent(text: string, postType: PostType, isSpecificComme
     if (lines.length === 0 || !lines[0].trim()) continue;
     
     let captionLines: string[] = [];
-    let commentLines: string[] = [];
+    const commentLines: string[] = [];
     let isComment = false;
     
     for (const line of lines) {
