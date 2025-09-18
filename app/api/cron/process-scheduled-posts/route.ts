@@ -41,12 +41,13 @@ export async function POST(request: NextRequest) {
           data: { status: 'processing' }
         });
 
-        // Get Facebook pages from the request or you might need to store access tokens in the database
-        const facebookPages = JSON.parse(request.headers.get('x-facebook-pages') || '[]') as Array<{id: string, accessToken: string}>;
-        const selectedPage = facebookPages.find((page) => page.id === post.pageId);
+        // Get Facebook page access token from database
+        const facebookPage = await prisma.facebookPage.findUnique({
+          where: { id: post.pageId }
+        });
 
-        if (!selectedPage) {
-          throw new Error('Facebook page not found or access token missing');
+        if (!facebookPage) {
+          throw new Error(`Facebook page ${post.pageId} not found in database`);
         }
 
         // Prepare the post data
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-facebook-pages': JSON.stringify(facebookPages)
+            'x-facebook-pages': JSON.stringify([{id: facebookPage.id, accessToken: facebookPage.accessToken}])
           },
           body: JSON.stringify(postData)
         });
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
               body: JSON.stringify({
                 postId: facebookResult.postId,
                 message: post.firstComment,
-                accessToken: selectedPage.accessToken
+                accessToken: facebookPage.accessToken
               })
             });
           } catch (commentError) {

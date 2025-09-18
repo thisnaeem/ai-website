@@ -29,10 +29,22 @@ export default function Settings() {
       setApiKey(savedApiKey);
     }
     
-    // Load Facebook pages from localStorage
+    // Load Facebook pages from localStorage and sync to database
     const savedPages = localStorage.getItem('facebook_pages');
     if (savedPages) {
-      setFacebookPages(JSON.parse(savedPages));
+      const pages = JSON.parse(savedPages);
+      setFacebookPages(pages);
+      
+      // Sync existing pages to database
+      if (pages.length > 0) {
+        fetch('/api/facebook-pages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pages })
+        }).catch(error => {
+          console.error('Failed to sync existing pages to database:', error);
+        });
+      }
     }
     
     // Load Cloudinary config from localStorage
@@ -139,6 +151,17 @@ export default function Settings() {
       setFacebookPages(updatedPages);
       localStorage.setItem('facebook_pages', JSON.stringify(updatedPages));
       
+      // Sync to database
+      try {
+        await fetch('/api/facebook-pages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pages: updatedPages })
+        });
+      } catch (syncError) {
+        console.error('Failed to sync to database:', syncError);
+      }
+      
       // Clear form
       setNewPageId('');
       setNewPageToken('');
@@ -154,14 +177,25 @@ export default function Settings() {
     }
   };
 
-  const removeFacebookPage = (pageId: string) => {
+  const removeFacebookPage = async (pageId: string) => {
     const updatedPages = facebookPages.filter(page => page.id !== pageId);
     setFacebookPages(updatedPages);
     localStorage.setItem('facebook_pages', JSON.stringify(updatedPages));
     
+    // Remove from database
+    try {
+      await fetch('/api/facebook-pages', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageId })
+      });
+    } catch (syncError) {
+      console.error('Failed to remove from database:', syncError);
+    }
+    
     setMessage('Facebook page removed successfully!');
-     setMessageType('success');
-   };
+    setMessageType('success');
+  };
 
    const saveCloudinaryConfig = () => {
      if (!cloudinaryCloudName.trim() || !cloudinaryApiKey.trim() || !cloudinaryApiSecret.trim()) {
