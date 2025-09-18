@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
         // Post to Facebook
         const baseUrl = process.env.NODE_ENV === 'production' 
-          ? 'https://your-domain.com' 
+          ? 'https://www.autowithai.me' 
           : 'http://localhost:3000';
         
         const facebookResponse = await fetch(`${baseUrl}/api/facebook-post`, {
