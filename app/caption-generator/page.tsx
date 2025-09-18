@@ -235,7 +235,7 @@ export default function CaptionGenerator() {
                     className={`absolute top-1 bottom-1 rounded-md transition-transform duration-200 ease-in-out ${
                       platform === 'threads' ? 'left-1/2 right-1' : 'left-1 right-1/2'
                     }`}
-                    style={{ backgroundColor: '#c8f300' }}
+                    style={{ backgroundColor: 'var(--primary-highlight)' }}
                   />
                   <button
                      onClick={() => setPlatform('facebook')}

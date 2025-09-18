@@ -97,11 +97,31 @@ export async function POST(request: NextRequest) {
         });
         
         if (!initResponse.ok) {
-          const errorData = await initResponse.json();
-          throw new Error(`Failed to initialize reel upload: ${errorData.error?.message || 'Unknown error'}`);
+          let errorMessage = `Failed to initialize reel upload: HTTP ${initResponse.status}`;
+          try {
+            const contentType = initResponse.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const errorData = await initResponse.json();
+              errorMessage = `Failed to initialize reel upload: ${errorData.error?.message || 'Unknown error'}`;
+            }
+          } catch (parseError) {
+            console.error('Failed to parse reel init error response:', parseError);
+          }
+          throw new Error(errorMessage);
         }
         
-        const initData = await initResponse.json();
+        let initData;
+        try {
+          const contentType = initResponse.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            initData = await initResponse.json();
+          } else {
+            throw new Error('Facebook API returned non-JSON response for reel initialization');
+          }
+        } catch (parseError) {
+          console.error('Failed to parse reel init response:', parseError);
+          throw new Error('Failed to parse Facebook reel initialization response');
+        }
         const { video_id, upload_url } = initData;
         
         // Step 2: Upload video using hosted file URL
@@ -132,11 +152,31 @@ export async function POST(request: NextRequest) {
         });
         
         if (!publishResponse.ok) {
-          const errorData = await publishResponse.json();
-          throw new Error(`Failed to publish reel: ${errorData.error?.message || 'Unknown error'}`);
+          let errorMessage = `Failed to publish reel: HTTP ${publishResponse.status}`;
+          try {
+            const contentType = publishResponse.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const errorData = await publishResponse.json();
+              errorMessage = `Failed to publish reel: ${errorData.error?.message || 'Unknown error'}`;
+            }
+          } catch (parseError) {
+            console.error('Failed to parse reel publish error response:', parseError);
+          }
+          throw new Error(errorMessage);
         }
         
-        const publishData = await publishResponse.json();
+        let publishData;
+        try {
+          const contentType = publishResponse.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            publishData = await publishResponse.json();
+          } else {
+            throw new Error('Facebook API returned non-JSON response for reel publishing');
+          }
+        } catch (parseError) {
+          console.error('Failed to parse reel publish response:', parseError);
+          throw new Error('Failed to parse Facebook reel publish response');
+        }
         
         return NextResponse.json({ 
           success: true, 
@@ -172,11 +212,31 @@ export async function POST(request: NextRequest) {
           });
           
           if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json();
-            throw new Error(`Failed to upload image: ${errorData.error?.message || 'Unknown error'}`);
+            let errorMessage = `Failed to upload image: HTTP ${uploadResponse.status}`;
+            try {
+              const contentType = uploadResponse.headers.get('content-type');
+              if (contentType && contentType.includes('application/json')) {
+                const errorData = await uploadResponse.json();
+                errorMessage = `Failed to upload image: ${errorData.error?.message || 'Unknown error'}`;
+              }
+            } catch (parseError) {
+              console.error('Failed to parse image upload error response:', parseError);
+            }
+            throw new Error(errorMessage);
           }
           
-          const uploadData = await uploadResponse.json();
+          let uploadData;
+          try {
+            const contentType = uploadResponse.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              uploadData = await uploadResponse.json();
+            } else {
+              throw new Error('Facebook API returned non-JSON response for image upload');
+            }
+          } catch (parseError) {
+            console.error('Failed to parse image upload response:', parseError);
+            throw new Error('Failed to parse Facebook image upload response');
+          }
           attachedMedia.push({ media_fbid: uploadData.id });
         }
         
@@ -236,11 +296,40 @@ export async function POST(request: NextRequest) {
     }
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || 'Failed to post to Facebook');
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.error?.message || errorMessage;
+        } else {
+          const textResponse = await response.text();
+          console.error('Non-JSON error response:', textResponse.substring(0, 500));
+          errorMessage = `Facebook API returned non-JSON response: ${response.status} ${response.statusText}`;
+        }
+      } catch (parseError) {
+        console.error('Failed to parse error response:', parseError);
+        errorMessage = `Failed to parse Facebook API error response: ${response.status} ${response.statusText}`;
+      }
+      
+      throw new Error(errorMessage);
     }
 
-    const responseData = await response.json();
+    let responseData;
+    try {
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        responseData = await response.json();
+      } else {
+        const textResponse = await response.text();
+        console.error('Non-JSON success response:', textResponse.substring(0, 500));
+        throw new Error('Facebook API returned non-JSON response');
+      }
+    } catch (parseError) {
+      console.error('Failed to parse success response:', parseError);
+      throw new Error('Failed to parse Facebook API response');
+    }
     
     return NextResponse.json({ 
       success: true, 
