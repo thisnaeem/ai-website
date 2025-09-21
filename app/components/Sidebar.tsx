@@ -3,10 +3,17 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from './AuthProvider';
 
 const Sidebar = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const { isAuthenticated, logout, isLoading } = useAuth();
+
+  // Don't render sidebar on login page or while loading
+  if (pathname === '/login' || isLoading || !isAuthenticated) {
+    return null;
+  }
 
   const navigation = [
     {
@@ -86,6 +93,17 @@ const Sidebar = () => {
                   <span className="ml-3">{item.name}</span>
                 </Link>
               ))}
+              
+              {/* Logout button for mobile */}
+              <button
+                onClick={logout}
+                className="nav-item nav-item--inactive text-base w-full text-left mt-4"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span className="ml-3">Logout</span>
+              </button>
             </nav>
           </div>
         </div>
@@ -98,21 +116,34 @@ const Sidebar = () => {
             <div className="flex items-center flex-shrink-0 px-4">
               <h1 className="text-xl font-bold text-gray-900">AutoWithAI</h1>
             </div>
-            <nav className="mt-5 flex-1 px-2 bg-white space-y-1">
-              {navigation.map((item) => (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`nav-item ${
-                    pathname === item.href
-                      ? 'nav-item--active'
-                      : 'nav-item--inactive'
-                  } text-sm`}
-                >
-                  {item.icon}
-                  <span className="ml-3">{item.name}</span>
-                </Link>
-              ))}
+            <nav className="mt-5 flex-1 px-2 bg-white space-y-1 flex flex-col">
+              <div className="flex-1 space-y-1">
+                {navigation.map((item) => (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={`nav-item ${
+                      pathname === item.href
+                        ? 'nav-item--active'
+                        : 'nav-item--inactive'
+                    } text-sm`}
+                  >
+                    {item.icon}
+                    <span className="ml-3">{item.name}</span>
+                  </Link>
+                ))}
+              </div>
+              
+              {/* Logout button for desktop */}
+              <button
+                onClick={logout}
+                className="nav-item nav-item--inactive text-sm w-full text-left mt-4"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span className="ml-3">Logout</span>
+              </button>
             </nav>
           </div>
         </div>

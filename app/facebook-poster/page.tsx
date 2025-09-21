@@ -39,6 +39,10 @@ function FacebookPosterContent() {
   const [firstComment, setFirstComment] = useState('');
   const [postFirstComment, setPostFirstComment] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState([]);
+  const [autoGenerateCaption, setAutoGenerateCaption] = useState(false);
+  const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
+  const [autoGenerateComment, setAutoGenerateComment] = useState(false);
+  const [isGeneratingComment, setIsGeneratingComment] = useState(false);
   
   // Get active tab from URL or default to manual
   const activeTab = (searchParams.get('tab') as 'manual' | 'automation' | 'scheduled') || 'manual';
@@ -58,11 +62,15 @@ function FacebookPosterContent() {
   };
   
   // Automation specific states
-  const [intervalMinutes, setIntervalMinutes] = useState<number>(60);
+  const [intervalMinutes, setIntervalMinutes] = useState<number>(10);
   const [multipleFiles, setMultipleFiles] = useState<UploadedFile[]>([]);
   
   // Filter state for scheduled posts
   const [filterPageId, setFilterPageId] = useState<string>('all');
+  
+  // Edit state for scheduled posts
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editIntervalMinutes, setEditIntervalMinutes] = useState<number>(10);
 
 
   // Load scheduled posts
@@ -175,7 +183,102 @@ function FacebookPosterContent() {
     }
   };
 
+  // Update a scheduled post's interval
+  const updateScheduledPost = async (postId: string, newIntervalMinutes: number) => {
+    try {
+      const response = await fetch('/api/scheduled-posts', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: postId,
+          intervalMinutes: newIntervalMinutes
+        })
+      });
+      
+      if (response.ok) {
+        showToast('Post interval updated successfully!', 'success');
+        setEditingPostId(null);
+        loadScheduledPosts();
+      } else {
+        throw new Error('Failed to update post');
+      }
+    } catch (error) {
+      console.error('Error updating post:', error);
+      showToast('Failed to update post', 'error');
+    }
+  };
 
+  // Start editing a post
+  const startEditingPost = (postId: string, currentInterval: number) => {
+    setEditingPostId(postId);
+    setEditIntervalMinutes(currentInterval || 10);
+  };
+
+  // Cancel editing
+  const cancelEditing = () => {
+    setEditingPostId(null);
+    setEditIntervalMinutes(10);
+  };
+
+  // Stop automation for all or specific page
+  const stopAutomation = async (pageId: string = 'all') => {
+    try {
+      const response = await fetch('/api/scheduled-posts/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'stop_automation',
+          pageId
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        showToast(result.message, 'success');
+        loadScheduledPosts();
+      } else {
+        throw new Error('Failed to stop automation');
+      }
+    } catch (error) {
+      console.error('Error stopping automation:', error);
+      showToast('Failed to stop automation', 'error');
+    }
+  };
+
+  // Delete all scheduled posts for all or specific page
+  const deleteAllScheduledPosts = async (pageId: string = 'all') => {
+    if (!confirm(`Are you sure you want to delete all scheduled posts${pageId !== 'all' ? ' for this page' : ''}? This action cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/scheduled-posts/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'delete_all',
+          pageId
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        showToast(result.message, 'success');
+        loadScheduledPosts();
+      } else {
+        throw new Error('Failed to delete posts');
+      }
+    } catch (error) {
+      console.error('Error deleting posts:', error);
+      showToast('Failed to delete posts', 'error');
+    }
+  };
 
   const postTypes = [
     { value: 'text', label: 'Text', icon: '📝' },
@@ -335,6 +438,89 @@ function FacebookPosterContent() {
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000); // Auto-hide after 5 seconds
+  };
+
+  const generateAutoCaption = async (mediaUrl: string, mediaType: 'image' | 'video') => {
+    if (!autoGenerateCaption) return;
+    
+    setIsGeneratingCaption(true);
+    
+    try {
+      const apiKey = localStorage.getItem('gemini_api_key');
+      
+      if (!apiKey) {
+        showToast('Please set your Gemini API key in Settings first.', 'error');
+        return;
+      }
+      
+      const response = await fetch('/api/auto-caption', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiKey,
+          mediaUrl,
+          mediaType
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate caption');
+      }
+      
+      const data = await response.json();
+      setPostContent(data.caption);
+      showToast('Caption generated successfully! 🤖', 'success');
+    } catch (error) {
+      console.error('Error generating auto caption:', error);
+      showToast(`Failed to generate caption: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsGeneratingCaption(false);
+    }
+  };
+
+  const generateAutoComment = async (mediaUrl: string, mediaType: 'image' | 'video') => {
+    if (!autoGenerateComment) return;
+    
+    setIsGeneratingComment(true);
+    
+    try {
+      const apiKey = localStorage.getItem('gemini_api_key');
+      
+      if (!apiKey) {
+        showToast('Please set your Gemini API key in Settings first.', 'error');
+        return;
+      }
+      
+      const response = await fetch('/api/auto-caption', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiKey,
+          mediaUrl,
+          mediaType,
+          isComment: true
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate comment');
+      }
+      
+      const data = await response.json();
+      setFirstComment(data.caption);
+      showToast('Comment generated successfully! 🤖', 'success');
+    } catch (error) {
+      console.error('Error generating auto comment:', error);
+      showToast(`Failed to generate comment: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsGeneratingComment(false);
+    }
   };
 
   const postToFacebook = async () => {
@@ -531,7 +717,7 @@ function FacebookPosterContent() {
                             <span className="text-gray-900">{selectedPage.name}</span>
                           </div>
                         ) : (
-                          <span className="text-gray-500">Select a page</span>
+                          <span className="text-gray-500">Select a Facebook page</span>
                         );
                       })()} 
                       <svg className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${
@@ -601,16 +787,63 @@ function FacebookPosterContent() {
 
                 {/* Post Content */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Post Content {postType === 'text' ? '*' : '(Optional)'}
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Post Content {postType === 'text' ? '*' : '(Optional)'}
+                    </label>
+                    {(postType === 'image' || postType === 'video' || postType === 'reel') && (
+                      <div className="flex items-center space-x-2">
+                        <label className="text-sm text-gray-600">Auto-generate caption</label>
+                        <button
+                          type="button"
+                          onClick={() => setAutoGenerateCaption(!autoGenerateCaption)}
+                          className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                            autoGenerateCaption
+                              ? 'bg-[var(--primary-highlight)] focus:ring-[var(--primary-highlight)]'
+                              : 'bg-gray-200 focus:ring-gray-500'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              autoGenerateCaption ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <textarea
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
-                    placeholder="Enter your post content here..."
-                    rows={4}
+                    placeholder={autoGenerateCaption && (postType === 'image' || postType === 'video' || postType === 'reel') ? "Caption will be auto-generated when you upload media..." : "Enter your post content here...\n\nTip: Add multiple captions separated by '===' for variety:\n\nCaption 1\n===\nCaption 2\n===\nCaption 3"}
+                    rows={6}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
+                    disabled={autoGenerateCaption && (postType === 'image' || postType === 'video' || postType === 'reel')}
                   />
+                  {!autoGenerateCaption && (
+                    <div className="mt-1">
+                      <p className="text-xs text-gray-500">
+                        💡 <strong>Multiple Captions:</strong> Separate different caption variations with &apos;===&apos; (three equal signs) for more engaging content options.
+                      </p>
+                    </div>
+                  )}
+                  {autoGenerateCaption && (postType === 'image' || postType === 'video' || postType === 'reel') && (
+                    <div className="mt-1">
+                      {isGeneratingCaption ? (
+                        <p className="text-xs text-blue-600 flex items-center">
+                          <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Generating caption with AI...
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500">
+                          🤖 AI will analyze your {postType} and generate an engaging one-liner caption automatically
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Media Upload for single media posts */}
@@ -632,6 +865,10 @@ function FacebookPosterContent() {
                               const uploaded = await uploadFileToCloudinary(file, resourceType);
                               if (uploaded) {
                                 setMediaUrl(uploaded.url);
+                                // Auto-generate caption if enabled
+                                if (autoGenerateCaption) {
+                                  await generateAutoCaption(uploaded.url, resourceType as 'image' | 'video');
+                                }
                               }
                             }
                           }}
@@ -964,6 +1201,30 @@ function FacebookPosterContent() {
                   </div>
                 </div>
 
+                {/* Auto-generate Caption Toggle */}
+                {(postType === 'image' || postType === 'video') && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-gray-700">
+                        Auto-generate caption with AI
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setAutoGenerateCaption(!autoGenerateCaption)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:ring-offset-2 ${
+                          autoGenerateCaption ? 'bg-[var(--primary-highlight)]' : 'bg-gray-200'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${
+                            autoGenerateCaption ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Post Content */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -972,10 +1233,40 @@ function FacebookPosterContent() {
                   <textarea
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
-                    placeholder="Enter your post content here..."
-                    rows={4}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none"
+                    placeholder={autoGenerateCaption ? "Caption will be auto-generated when files are uploaded..." : "Enter your post content here...\n\nFor automation: Add multiple captions separated by '===' for rotation:\n\nCaption 1\n===\nCaption 2\n===\nCaption 3"}
+                    rows={8}
+                    disabled={autoGenerateCaption}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none ${
+                      autoGenerateCaption ? 'bg-gray-50 text-gray-500' : ''
+                    }`}
                   />
+                  {!autoGenerateCaption && (
+                    <div className="mt-2">
+                      <p className="text-xs text-gray-500">
+                        💡 <strong>Tip for Automation:</strong> You can add multiple captions separated by &apos;===&apos; (three equal signs). Each caption will be used for different posts in rotation.
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Example: &quot;Caption 1 === Caption 2 === Caption 3&quot;
+                      </p>
+                    </div>
+                  )}
+                  {autoGenerateCaption && (
+                    <div className="mt-2">
+                      {isGeneratingCaption ? (
+                        <div className="flex items-center space-x-2 text-sm text-blue-600">
+                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Generating caption with AI...</span>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">
+                          AI will analyze your {postType === 'image' ? 'images' : 'videos'} and generate engaging captions automatically when you upload files.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* File Upload for Image/Video */}
@@ -1006,6 +1297,18 @@ function FacebookPosterContent() {
                              
                              setMultipleFiles(uploadedFiles);
                              setIsUploading(false);
+                             
+                             // Auto-generate caption if enabled and we have uploaded files
+                             if (autoGenerateCaption && uploadedFiles.length > 0) {
+                               const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
+                               await generateAutoCaption(uploadedFiles[0].url, mediaType);
+                             }
+                             
+                             // Auto-generate comment if enabled and we have uploaded files
+                             if (autoGenerateComment && uploadedFiles.length > 0) {
+                               const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
+                               await generateAutoComment(uploadedFiles[0].url, mediaType);
+                             }
                            }
                          }}
                          className="hidden"
@@ -1085,6 +1388,18 @@ function FacebookPosterContent() {
                                  
                                  setMultipleFiles([...multipleFiles, ...uploadedFiles]);
                                  setIsUploading(false);
+                                 
+                                 // Auto-generate caption if enabled and we have uploaded files
+                                 if (autoGenerateCaption && uploadedFiles.length > 0) {
+                                   const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
+                                   await generateAutoCaption(uploadedFiles[0].url, mediaType);
+                                 }
+                                 
+                                 // Auto-generate comment if enabled and we have uploaded files
+                                 if (autoGenerateComment && uploadedFiles.length > 0) {
+                                   const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
+                                   await generateAutoComment(uploadedFiles[0].url, mediaType);
+                                 }
                                }
                              }}
                              className="hidden"
@@ -1115,7 +1430,6 @@ function FacebookPosterContent() {
                       onChange={(e) => setIntervalMinutes(Number(e.target.value))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
                     >
-                      <option value={1}>1 minute</option>
                       <option value={5}>5 minutes</option>
                       <option value={10}>10 minutes</option>
                       <option value={30}>30 minutes</option>
@@ -1148,13 +1462,56 @@ function FacebookPosterContent() {
                     </button>
                   </div>
                   {postFirstComment && (
-                    <textarea
-                      value={firstComment}
-                      onChange={(e) => setFirstComment(e.target.value)}
-                      placeholder="Enter your first comment here..."
-                      rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none"
-                    />
+                    <div className="space-y-3">
+                      {/* AI Generate Comment Toggle */}
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">
+                          Auto-generate comment with AI
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setAutoGenerateComment(!autoGenerateComment)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:ring-offset-2 ${
+                            autoGenerateComment ? 'bg-[var(--primary-highlight)]' : 'bg-gray-200'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${
+                              autoGenerateComment ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      
+                      <textarea
+                        value={firstComment}
+                        onChange={(e) => setFirstComment(e.target.value)}
+                        placeholder={autoGenerateComment ? "Comment will be auto-generated when you upload media..." : "Enter your first comment here..."}
+                        rows={3}
+                        disabled={autoGenerateComment}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none ${
+                          autoGenerateComment ? 'bg-gray-50 text-gray-500' : ''
+                        }`}
+                      />
+                      
+                      {autoGenerateComment && (
+                        <div className="mt-2">
+                          {isGeneratingComment ? (
+                            <div className="flex items-center space-x-2 text-sm text-blue-600">
+                              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <span>Generating comment with AI...</span>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-500">
+                              🤖 AI will generate an engaging first comment based on your post content and media.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -1171,7 +1528,7 @@ function FacebookPosterContent() {
               </div>
             </div>
           </div>
-          )}
+           )}
 
           {/* Scheduled Posts Tab */}
           {activeTab === 'scheduled' && (
@@ -1198,6 +1555,28 @@ function FacebookPosterContent() {
                 </div>
               </div>
               
+              {/* Bulk Actions */}
+              <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-4">
+                  <h4 className="text-sm font-medium text-gray-700">Bulk Actions:</h4>
+                  <button
+                    onClick={() => stopAutomation(filterPageId)}
+                    className="px-3 py-2 bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200 text-sm font-medium transition-colors"
+                  >
+                    {filterPageId === 'all' ? 'Stop All Automation' : 'Stop Page Automation'}
+                  </button>
+                  <button
+                    onClick={() => deleteAllScheduledPosts(filterPageId)}
+                    className="px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 text-sm font-medium transition-colors"
+                  >
+                    {filterPageId === 'all' ? 'Delete All Posts' : 'Delete Page Posts'}
+                  </button>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {filterPageId === 'all' ? 'Actions apply to all pages' : `Actions apply to selected page only`}
+                </div>
+              </div>
+              
               {/* Table */}
               <div>
                 <table className="w-full divide-y divide-gray-200">
@@ -1219,6 +1598,12 @@ function FacebookPosterContent() {
                         Created At
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Published At
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Interval (min)
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Actions
                       </th>
                     </tr>
@@ -1236,12 +1621,14 @@ function FacebookPosterContent() {
                              status: string;
                              scheduledFor: string;
                              createdAt: string;
+                             postedAt?: string;
                              facebookPostId?: string;
+                             intervalMinutes?: number;
                            }) => post.pageId === filterPageId);
                       
                       return filteredPosts.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="px-4 py-4 text-center text-gray-500">
+                          <td colSpan={8} className="px-4 py-4 text-center text-gray-500">
                             {filterPageId === 'all' ? 'No scheduled posts yet' : 'No posts found for selected page'}
                           </td>
                         </tr>
@@ -1255,7 +1642,9 @@ function FacebookPosterContent() {
                         status: string;
                         scheduledFor: string;
                         createdAt: string;
+                        postedAt?: string;
                         facebookPostId?: string;
+                        intervalMinutes?: number;
                       }) => {
                         const page = facebookPages.find(p => p.id === post.pageId);
                         return (
@@ -1297,6 +1686,36 @@ function FacebookPosterContent() {
                           <td className="px-4 py-4 text-sm text-gray-900">
                             {new Date(post.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                           </td>
+                          <td className="px-4 py-4 text-sm text-gray-900">
+                            {post.postedAt ? new Date(post.postedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '-'}
+                          </td>
+                          <td className="px-4 py-4 text-sm text-gray-900">
+                            {editingPostId === post.id ? (
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="number"
+                                  value={editIntervalMinutes}
+                                  onChange={(e) => setEditIntervalMinutes(Number(e.target.value))}
+                                  className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  min="1"
+                                />
+                                <button
+                                  onClick={() => updateScheduledPost(post.id, editIntervalMinutes)}
+                                  className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  onClick={cancelEditing}
+                                  className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <span>{post.intervalMinutes || '-'}</span>
+                            )}
+                          </td>
                           <td className="px-4 py-4 text-sm font-medium">
                             <div className="flex space-x-2">
                               {post.status === 'posted' && post.facebookPostId ? (
@@ -1313,7 +1732,7 @@ function FacebookPosterContent() {
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => {/* TODO: Implement edit function */}}
+                                  onClick={() => startEditingPost(post.id, post.intervalMinutes || 10)}
                                   className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 text-xs font-medium"
                                 >
                                   Edit
@@ -1330,8 +1749,8 @@ function FacebookPosterContent() {
                         </tr>
                         );
                        })
-                       );
-                     })()}
+                     );
+                    })()}
                   </tbody>
                 </table>
               </div>
