@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     // Get all scheduled posts that are due to be posted
     const now = new Date();
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
           try {
             const errorData = await facebookResponse.json();
             errorMessage = errorData.error?.message || errorData.error || errorMessage;
-          } catch (parseError) {
+          } catch {
             errorMessage = `HTTP ${facebookResponse.status}: ${facebookResponse.statusText}`;
           }
           throw new Error(errorMessage);

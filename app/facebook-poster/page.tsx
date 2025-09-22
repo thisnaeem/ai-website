@@ -20,6 +20,28 @@ interface UploadedFile {
   publicId: string;
 }
 
+interface ScheduledPost {
+  id: string;
+  title: string;
+  content?: string;
+  postType: string;
+  mediaUrls: string[];
+  carouselImages: string[];
+  pageId: string;
+  pageName: string;
+  status: string;
+  scheduledFor: string;
+  intervalMinutes?: number;
+  isRecurring: boolean;
+  firstComment?: string;
+  postFirstComment: boolean;
+  createdAt: string;
+  updatedAt: string;
+  postedAt?: string;
+  facebookPostId?: string;
+  errorMessage?: string;
+}
+
 function FacebookPosterContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -38,11 +60,20 @@ function FacebookPosterContent() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [firstComment, setFirstComment] = useState('');
   const [postFirstComment, setPostFirstComment] = useState(false);
-  const [scheduledPosts, setScheduledPosts] = useState([]);
-  const [autoGenerateCaption, setAutoGenerateCaption] = useState(false);
+  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
+  const [autoGenerateCaption, ] = useState(false);
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
-  const [autoGenerateComment, setAutoGenerateComment] = useState(false);
+  const [autoGenerateComment, ] = useState(false);
   const [isGeneratingComment, setIsGeneratingComment] = useState(false);
+  
+  // Automation-specific state variables
+  const [automationTopic, setAutomationTopic] = useState('');
+  const [automationPlatform, setAutomationPlatform] = useState('facebook');
+  const [automationLink, setAutomationLink] = useState('');
+  const [isGeneratingAutomationCaptions, setIsGeneratingAutomationCaptions] = useState(false);
+  const [isGeneratingAutomationComments, setIsGeneratingAutomationComments] = useState(false);
+  const [postCaptions, setPostCaptions] = useState<{[key: number]: string}>({});
+  const [postComments, setPostComments] = useState<{[key: number]: string}>({});
   
   // Get active tab from URL or default to manual
   const activeTab = (searchParams.get('tab') as 'manual' | 'automation' | 'scheduled') || 'manual';
@@ -72,6 +103,68 @@ function FacebookPosterContent() {
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editIntervalMinutes, setEditIntervalMinutes] = useState<number>(10);
 
+  // Validate reel file specifications
+  const validateReelFile = async (file: File): Promise<string | null> => {
+    // Check file type
+    if (!file.type.startsWith('video/')) {
+      return 'Reel must be a video file';
+    }
+
+    // Check file size (approximate limit for 90 seconds at good quality)
+    const maxSizeBytes = 100 * 1024 * 1024; // 100MB
+    if (file.size > maxSizeBytes) {
+      return 'Reel file size must be under 100MB';
+    }
+
+    // Create video element to check duration and dimensions
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      const url = URL.createObjectURL(file);
+      
+      video.onloadedmetadata = () => {
+        const duration = video.duration;
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        
+        URL.revokeObjectURL(url);
+        
+        // Check duration (3-90 seconds)
+        if (duration < 3) {
+          resolve('Reel duration must be at least 3 seconds');
+          return;
+        }
+        if (duration > 90) {
+          resolve('Reel duration must not exceed 90 seconds');
+          return;
+        }
+        
+        // Check aspect ratio (should be 9:16 or close to it)
+        const aspectRatio = width / height;
+        const targetAspectRatio = 9 / 16;
+        const tolerance = 0.1; // Allow some tolerance
+        
+        if (Math.abs(aspectRatio - targetAspectRatio) > tolerance) {
+          resolve('Reel should have a 9:16 aspect ratio (portrait orientation)');
+          return;
+        }
+        
+        // Check minimum resolution (540x960)
+        if (width < 540 || height < 960) {
+          resolve('Reel resolution must be at least 540x960 pixels');
+          return;
+        }
+        
+        resolve(null); // No validation errors
+      };
+      
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve('Unable to validate video file. Please ensure it\'s a valid video format.');
+      };
+      
+      video.src = url;
+    });
+  };
 
   // Load scheduled posts
   const loadScheduledPosts = async () => {
@@ -117,6 +210,10 @@ function FacebookPosterContent() {
          const mediaUrl = mediaUrls[i];
          const scheduledTime = i === 0 ? now : new Date(now.getTime() + (i * intervalMinutes * 60000)); // First post immediate, rest staggered
         
+        // Use individual caption and comment for each post if available
+        const individualCaption = postCaptions[i] || postContent || '';
+        const individualComment = postComments[i] || firstComment || '';
+        
         const response = await fetch('/api/scheduled-posts', {
           method: 'POST',
           headers: {
@@ -124,7 +221,7 @@ function FacebookPosterContent() {
           },
           body: JSON.stringify({
             title: postType === 'image' ? 'Image' : 'Reel',
-            content: postContent || '',
+            content: individualCaption,
             postType,
             mediaUrls: [mediaUrl], // Single media URL per post
             carouselImages: [],
@@ -133,8 +230,8 @@ function FacebookPosterContent() {
             scheduledFor: scheduledTime.toISOString(),
             intervalMinutes: intervalMinutes,
             isRecurring: true,
-            firstComment,
-            postFirstComment
+            firstComment: individualComment,
+            postFirstComment: postFirstComment || !!individualComment
           })
         });
         
@@ -283,7 +380,8 @@ function FacebookPosterContent() {
   const postTypes = [
     { value: 'text', label: 'Text', icon: '📝' },
     { value: 'image', label: 'Image', icon: '🖼️' },
-    { value: 'video', label: 'Reel', icon: '🎥' },
+    { value: 'video', label: 'Video', icon: '📹' },
+    { value: 'reel', label: 'Reel', icon: '🎥' },
     { value: 'carousel', label: 'Carousel', icon: '🎠' },
     
   ];
@@ -348,23 +446,7 @@ function FacebookPosterContent() {
     };
   }, [isDropdownOpen]);
 
-  const addCarouselImage = () => {
-    if (carouselImages.length < 10) {
-      setCarouselImages([...carouselImages, '']);
-    }
-  };
-
-  const removeCarouselImage = (index: number) => {
-    if (carouselImages.length > 2) {
-      setCarouselImages(carouselImages.filter((_, i) => i !== index));
-    }
-  };
-
-  const updateCarouselImage = (index: number, url: string) => {
-    const updated = [...carouselImages];
-    updated[index] = url;
-    setCarouselImages(updated);
-  };
+  // Removed unused carousel functions: addCarouselImage, removeCarouselImage, updateCarouselImage
 
   const uploadFileToCloudinary = async (file: File, resourceType: string = 'auto') => {
     if (!cloudinaryConfig) {
@@ -440,8 +522,13 @@ function FacebookPosterContent() {
     setTimeout(() => setToast(null), 5000); // Auto-hide after 5 seconds
   };
 
-  const generateAutoCaption = async (mediaUrl: string, mediaType: 'image' | 'video') => {
-    if (!autoGenerateCaption) return;
+  // Removed unused generateAutoCaption function
+
+  const generateManualCaption = async () => {
+    if (!mediaUrl) {
+      showToast('Please upload media first to generate a caption.', 'error');
+      return;
+    }
     
     setIsGeneratingCaption(true);
     
@@ -452,6 +539,8 @@ function FacebookPosterContent() {
         showToast('Please set your Gemini API key in Settings first.', 'error');
         return;
       }
+      
+      const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
       
       const response = await fetch('/api/auto-caption', {
         method: 'POST',
@@ -474,15 +563,18 @@ function FacebookPosterContent() {
       setPostContent(data.caption);
       showToast('Caption generated successfully! 🤖', 'success');
     } catch (error) {
-      console.error('Error generating auto caption:', error);
+      console.error('Error generating manual caption:', error);
       showToast(`Failed to generate caption: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     } finally {
-      setIsGeneratingCaption(false);
-    }
-  };
+       setIsGeneratingCaption(false);
+     }
+   };
 
-  const generateAutoComment = async (mediaUrl: string, mediaType: 'image' | 'video') => {
-    if (!autoGenerateComment) return;
+  const generateManualComment = async () => {
+    if (!mediaUrl) {
+      showToast('Please upload media first before generating a comment.', 'error');
+      return;
+    }
     
     setIsGeneratingComment(true);
     
@@ -493,6 +585,8 @@ function FacebookPosterContent() {
         showToast('Please set your Gemini API key in Settings first.', 'error');
         return;
       }
+      
+      const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
       
       const response = await fetch('/api/auto-caption', {
         method: 'POST',
@@ -516,10 +610,213 @@ function FacebookPosterContent() {
       setFirstComment(data.caption);
       showToast('Comment generated successfully! 🤖', 'success');
     } catch (error) {
-      console.error('Error generating auto comment:', error);
+      console.error('Error generating manual comment:', error);
       showToast(`Failed to generate comment: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     } finally {
       setIsGeneratingComment(false);
+    }
+  };
+
+  // Removed unused generateAutoComment function
+
+  // Automation generation functions
+  const generateBulkCaptions = async () => {
+    if (!automationTopic || multipleFiles.length === 0) return;
+    
+    setIsGeneratingAutomationCaptions(true);
+    
+    try {
+      const apiKey = localStorage.getItem('gemini_api_key');
+      
+      if (!apiKey) {
+        showToast('Please set your Gemini API key in Settings first.', 'error');
+        return;
+      }
+      
+      const newCaptions: {[key: number]: string} = {};
+      
+      // Generate captions for each file by analyzing the actual image
+      for (let i = 0; i < multipleFiles.length; i++) {
+        const file = multipleFiles[i];
+        const mediaType = file.file.type.startsWith('video/') ? 'video' : 'image';
+        
+        const response = await fetch('/api/auto-caption', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            apiKey,
+            mediaUrl: file.url,
+            mediaType,
+            isComment: false
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to generate caption');
+        }
+        
+        const data = await response.json();
+        if (data.caption) {
+          newCaptions[i] = data.caption;
+        }
+      }
+      
+      setPostCaptions(newCaptions);
+      showToast(`Generated ${Object.keys(newCaptions).length} unique captions successfully! 🤖`, 'success');
+    } catch (error) {
+      console.error('Error generating bulk captions:', error);
+      showToast(`Failed to generate captions: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsGeneratingAutomationCaptions(false);
+    }
+  };
+
+  const generateBulkComments = async () => {
+    if (!automationTopic || multipleFiles.length === 0) return;
+    
+    setIsGeneratingAutomationComments(true);
+    
+    try {
+      const apiKey = localStorage.getItem('gemini_api_key');
+      
+      if (!apiKey) {
+        showToast('Please set your Gemini API key in Settings first.', 'error');
+        return;
+      }
+      
+      const newComments: {[key: number]: string} = {};
+      
+      // Generate comments for each file by analyzing the actual image
+      for (let i = 0; i < multipleFiles.length; i++) {
+        const file = multipleFiles[i];
+        const mediaType = file.file.type.startsWith('video/') ? 'video' : 'image';
+        
+        const response = await fetch('/api/auto-caption', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            apiKey,
+            mediaUrl: file.url,
+            mediaType,
+            isComment: true
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to generate comment');
+        }
+        
+        const data = await response.json();
+        if (data.caption) {
+          newComments[i] = data.caption;
+        }
+      }
+      
+      setPostComments(newComments);
+      showToast(`Generated ${Object.keys(newComments).length} unique comments successfully! 🤖`, 'success');
+    } catch (error) {
+      console.error('Error generating bulk comments:', error);
+      showToast(`Failed to generate comments: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsGeneratingAutomationComments(false);
+    }
+  };
+
+  const generateIndividualCaption = async (index: number) => {
+    if (!automationTopic) return;
+    
+    try {
+      const apiKey = localStorage.getItem('gemini_api_key');
+      
+      if (!apiKey) {
+        showToast('Please set your Gemini API key in Settings first.', 'error');
+        return;
+      }
+      
+      const file = multipleFiles[index];
+      const mediaType = file.file.type.startsWith('video/') ? 'video' : 'image';
+      
+      const response = await fetch('/api/auto-caption', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiKey,
+          mediaUrl: file.url,
+          mediaType,
+          isComment: false
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate caption');
+      }
+      
+      const data = await response.json();
+      if (data.caption) {
+        setPostCaptions(prev => ({
+          ...prev,
+          [index]: data.caption
+        }));
+        showToast('Unique caption generated successfully! 🤖', 'success');
+      }
+    } catch (error) {
+      console.error('Error generating individual caption:', error);
+      showToast(`Failed to generate caption: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  const generateIndividualComment = async (index: number) => {
+    if (!automationTopic) return;
+    
+    try {
+      const apiKey = localStorage.getItem('gemini_api_key');
+      
+      if (!apiKey) {
+        showToast('Please set your Gemini API key in Settings first.', 'error');
+        return;
+      }
+      
+      const file = multipleFiles[index];
+      const mediaType = file.file.type.startsWith('video/') ? 'video' : 'image';
+      
+      const response = await fetch('/api/auto-caption', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiKey,
+          mediaUrl: file.url,
+          mediaType,
+          isComment: true
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate comment');
+      }
+      
+      const data = await response.json();
+      if (data.caption) {
+        setPostComments(prev => ({
+          ...prev,
+          [index]: data.caption
+        }));
+        showToast('Unique comment generated successfully! 🤖', 'success');
+      }
+    } catch (error) {
+      console.error('Error generating individual comment:', error);
+      showToast(`Failed to generate comment: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -552,7 +849,8 @@ function FacebookPosterContent() {
         throw new Error('Selected page not found');
       }
 
-      const response = await fetch('/api/facebook-post', {
+      const apiEndpoint = postType === 'reel' ? '/api/facebook-reel' : '/api/facebook-post';
+      const response = await fetch(apiEndpoint, {
          method: 'POST',
          headers: {
            'Content-Type': 'application/json',
@@ -560,7 +858,7 @@ function FacebookPosterContent() {
          },
          body: JSON.stringify({
            pageId: selectedPageId,
-           postType,
+           postType: postType === 'reel' ? undefined : postType, // Reel endpoint doesn't need postType
            content: postContent,
            mediaUrl: postType === 'carousel' ? undefined : mediaUrl,
            carouselImages: postType === 'carousel' ? carouselImages : undefined
@@ -573,6 +871,40 @@ function FacebookPosterContent() {
       }
       
       const data = await response.json();
+      
+      // Save the posted post to database
+      try {
+        const selectedPage = facebookPages.find(page => page.id === selectedPageId);
+        if (selectedPage) {
+          await fetch('/api/scheduled-posts', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: postContent.substring(0, 50) + (postContent.length > 50 ? '...' : '') || `${postType} post`,
+              content: postContent,
+              postType: postType,
+              mediaUrls: postType === 'carousel' ? carouselImages.filter(url => url.trim()) : (mediaUrl ? [mediaUrl] : []),
+              carouselImages: postType === 'carousel' ? carouselImages.filter(url => url.trim()) : [],
+              pageId: selectedPageId,
+              pageName: selectedPage.name,
+              scheduledFor: new Date().toISOString(), // Current time since it's already posted
+              status: 'posted',
+              facebookPostId: data.postId,
+              postedAt: new Date().toISOString(),
+              firstComment: postFirstComment ? firstComment : null,
+              postFirstComment: postFirstComment
+            })
+          });
+          
+          // Reload scheduled posts to show the new posted post
+          loadScheduledPosts();
+        }
+      } catch (dbError) {
+        console.error('Error saving post to database:', dbError);
+        // Don't fail the whole operation if database save fails
+      }
       
       // Post first comment if enabled and comment text is provided
       if (postFirstComment && firstComment.trim()) {
@@ -760,12 +1092,13 @@ function FacebookPosterContent() {
                       <div
                         className={`absolute top-1 bottom-1 rounded-md transition-transform duration-200 ease-in-out`}
                         style={{ 
-                          backgroundColor: '#c8f300',
-                          width: '25%',
+                          backgroundColor: '#3b82f6',
+                          width: '20%',
                           left: postType === 'text' ? '0%' : 
-                                postType === 'image' ? '25%' : 
-                                postType === 'video' ? '50%' : 
-                                postType === 'carousel' ? '75%' : '0%'
+                                postType === 'image' ? '20%' : 
+                                postType === 'video' ? '40%' : 
+                                postType === 'reel' ? '60%' : 
+                                postType === 'carousel' ? '80%' : '0%'
                         }}
                       />
                       {postTypes.map((type) => (
@@ -788,87 +1121,98 @@ function FacebookPosterContent() {
                 {/* Post Content */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Post Content {postType === 'text' ? '*' : '(Optional)'}
-                    </label>
-                    {(postType === 'image' || postType === 'video' || postType === 'reel') && (
-                      <div className="flex items-center space-x-2">
-                        <label className="text-sm text-gray-600">Auto-generate caption</label>
-                        <button
-                          type="button"
-                          onClick={() => setAutoGenerateCaption(!autoGenerateCaption)}
-                          className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                            autoGenerateCaption
-                              ? 'bg-[var(--primary-highlight)] focus:ring-[var(--primary-highlight)]'
-                              : 'bg-gray-200 focus:ring-gray-500'
-                          }`}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                              autoGenerateCaption ? 'translate-x-4' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between w-full">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Post Content {postType === 'text' ? '*' : '(Optional)'}
+                      </label>
+                      {(postType === 'image' || postType === 'video' || postType === 'reel') && mediaUrl && (
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={generateManualCaption}
+                            disabled={isGeneratingCaption}
+                            className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-[var(--primary-highlight)] hover:bg-[var(--primary-highlight)]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-highlight)] disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isGeneratingCaption ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                🤖 Generate Caption
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={generateManualComment}
+                            disabled={isGeneratingComment}
+                            className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isGeneratingComment ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                💬 Generate Comment
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <textarea
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
-                    placeholder={autoGenerateCaption && (postType === 'image' || postType === 'video' || postType === 'reel') ? "Caption will be auto-generated when you upload media..." : "Enter your post content here...\n\nTip: Add multiple captions separated by '===' for variety:\n\nCaption 1\n===\nCaption 2\n===\nCaption 3"}
+                    placeholder={"Enter your post content here...\n\nTip: Add multiple captions separated by '===' for variety:\n\nCaption 1\n===\nCaption 2\n===\nCaption 3"}
                     rows={6}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
-                    disabled={autoGenerateCaption && (postType === 'image' || postType === 'video' || postType === 'reel')}
                   />
-                  {!autoGenerateCaption && (
-                    <div className="mt-1">
-                      <p className="text-xs text-gray-500">
-                        💡 <strong>Multiple Captions:</strong> Separate different caption variations with &apos;===&apos; (three equal signs) for more engaging content options.
-                      </p>
-                    </div>
-                  )}
-                  {autoGenerateCaption && (postType === 'image' || postType === 'video' || postType === 'reel') && (
-                    <div className="mt-1">
-                      {isGeneratingCaption ? (
-                        <p className="text-xs text-blue-600 flex items-center">
-                          <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Generating caption with AI...
-                        </p>
-                      ) : (
-                        <p className="text-xs text-gray-500">
-                          🤖 AI will analyze your {postType} and generate an engaging one-liner caption automatically
-                        </p>
-                      )}
-                    </div>
-                  )}
+                  <div className="mt-1">
+                    <p className="text-xs text-gray-500">
+                      💡 <strong>Multiple Captions:</strong> Separate different caption variations with &apos;===&apos; (three equal signs) for more engaging content options.
+                    </p>
+                  </div>
                 </div>
 
                 {/* Media Upload for single media posts */}
                 {(postType === 'image' || postType === 'video' || postType === 'reel') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {postType === 'image' ? 'Upload Image *' : postType === 'video' ? 'Upload Video *' : 'Upload Reel *'}
+                      {postType === 'image' ? 'Upload Image *' : postType === 'video' ? 'Upload Video *' : postType === 'reel' ? 'Upload Reel *' : 'Upload Media *'}
                     </label>
                     
                     {!mediaUrl ? (
                       <div>
                         <input
                           type="file"
-                          accept={postType === 'image' ? 'image/*' : 'video/*'}
+                          accept={postType === 'image' ? 'image/*' : (postType === 'video' || postType === 'reel') ? 'video/*' : '*/*'}
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
+                              // Validate reel specifications
+                              if (postType === 'reel') {
+                                const validationError = await validateReelFile(file);
+                                if (validationError) {
+                                  alert(validationError);
+                                  return;
+                                }
+                              }
+                              
                               const resourceType = postType === 'image' ? 'image' : 'video';
                               const uploaded = await uploadFileToCloudinary(file, resourceType);
                               if (uploaded) {
                                 setMediaUrl(uploaded.url);
-                                // Auto-generate caption if enabled
-                                if (autoGenerateCaption) {
-                                  await generateAutoCaption(uploaded.url, resourceType as 'image' | 'video');
-                                }
                               }
                             }
                           }}
@@ -882,13 +1226,13 @@ function FacebookPosterContent() {
                             isUploading ? 'opacity-50 cursor-not-allowed' : ''
                           }`}
                         >
-                          {isUploading ? 'Uploading...' : `Choose ${postType === 'image' ? 'Image' : postType === 'video' ? 'Video' : 'Reel'}`}
+                          {isUploading ? 'Uploading...' : `Choose ${postType === 'image' ? 'Image' : postType === 'video' ? 'Video' : postType === 'reel' ? 'Reel' : 'Media'}`}
                         </label>
                       </div>
                     ) : (
                       <div className="space-y-3">
                         <div className="p-3 bg-green-50 border border-green-200 rounded-md">
-                          <p className="text-sm text-green-700 mb-3">✓ {postType === 'image' ? 'Image' : postType === 'video' ? 'Video' : 'Reel'} uploaded successfully</p>
+                          <p className="text-sm text-green-700 mb-3">✓ {postType === 'image' ? 'Image' : postType === 'video' ? 'Video' : postType === 'reel' ? 'Reel' : 'Media'} uploaded successfully</p>
                           {postType === 'image' ? (
                             <img
                               src={mediaUrl}
@@ -1095,6 +1439,129 @@ function FacebookPosterContent() {
                     {isPosting ? 'Posting...' : 'Post to Facebook'}
                   </button>
                 </div>
+
+                {/* Posted Posts Section */}
+                <div className="mt-8 pt-8 border-t border-gray-200">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Posted Posts</h3>
+                  
+                  {/* Filter by Page */}
+                  <div className="mb-4">
+                    <label className="text-sm font-medium text-gray-700">Filter by Page:</label>
+                    <select
+                      value={filterPageId}
+                      onChange={(e) => setFilterPageId(e.target.value)}
+                      className="ml-2 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">All Pages</option>
+                      {facebookPages.map((page) => (
+                        <option key={page.id} value={page.id}>
+                          {page.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Posted Posts Table */}
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Page
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Content
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Type
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Posted At
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Status
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {scheduledPosts
+                          .filter(post => post.status === 'posted')
+                          .filter(post => !filterPageId || post.pageId === filterPageId)
+                          .map((post) => {
+                            const page = facebookPages.find(p => p.id === post.pageId);
+                            return (
+                              <tr key={post.id}>
+                                <td className="px-4 py-4 text-sm font-medium text-gray-900">
+                                  <div className="flex items-center space-x-2">
+                                    {page?.picture ? (
+                                      <img
+                                        src={page.picture}
+                                        alt={`${page.name} profile`}
+                                        className="w-8 h-8 rounded-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
+                                        <span className="text-xs font-medium text-gray-600">
+                                          {page?.name?.charAt(0) || '?'}
+                                        </span>
+                                      </div>
+                                    )}
+                                    <span>{page?.name || 'Unknown Page'}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-4 text-sm text-gray-900">
+                                  <div className="max-w-xs truncate">
+                                    {post.content || 'No content'}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-4 text-sm text-gray-900">
+                                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                    post.postType === 'image' ? 'bg-blue-100 text-blue-800' :
+                                    post.postType === 'video' ? 'bg-purple-100 text-purple-800' :
+                                    post.postType === 'reel' ? 'bg-pink-100 text-pink-800' :
+                                    post.postType === 'carousel' ? 'bg-green-100 text-green-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {post.postType}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-4 text-sm text-gray-900">
+                                  {new Date(post.postedAt || post.scheduledFor).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-4 text-sm text-gray-900">
+                                  <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                    Posted
+                                  </span>
+                                </td>
+                                <td className="px-4 py-4 text-sm text-gray-900">
+                                  <div className="flex space-x-2">
+                                    {post.facebookPostId && (
+                                      <a
+                                        href={`https://www.facebook.com/${post.facebookPostId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 text-xs font-medium"
+                                      >
+                                        View on Facebook
+                                      </a>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                    {scheduledPosts.filter(post => post.status === 'posted').filter(post => !filterPageId || post.pageId === filterPageId).length === 0 && (
+                      <div className="text-center py-8">
+                        <p className="text-gray-500">No posted posts found.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1164,7 +1631,7 @@ function FacebookPosterContent() {
                   </div>
                 </div>
 
-                {/* Post Type Selection - Limited to image and reel for automation */}
+                {/* Post Type Selection - Image, Video, and Reel for automation */}
                 <div>
                   <label className="text-base font-medium text-gray-900">Post Type</label>
                   <div className="mt-4">
@@ -1172,9 +1639,9 @@ function FacebookPosterContent() {
                       <div
                         className={`absolute top-1 bottom-1 rounded-md transition-transform duration-200 ease-in-out`}
                         style={{ 
-                          backgroundColor: '#c8f300',
-                          width: '50%',
-                          left: postType === 'image' ? '0%' : '50%'
+                          backgroundColor: '#3b82f6',
+                          width: '33.33%',
+                          left: postType === 'image' ? '0%' : postType === 'video' ? '33.33%' : '66.66%'
                         }}
                       />
                       <button
@@ -1195,31 +1662,112 @@ function FacebookPosterContent() {
                             : 'text-gray-600 hover:text-gray-800'
                         }`}
                       >
+                        Video
+                      </button>
+                      <button
+                        onClick={() => setPostType('reel')}
+                        className={`relative z-10 flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors duration-200 ${
+                          postType === 'reel'
+                            ? 'text-black'
+                            : 'text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
                         Reel
                       </button>
                     </div>
                   </div>
                 </div>
 
-                {/* Auto-generate Caption Toggle */}
-                {(postType === 'image' || postType === 'video') && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-sm font-medium text-gray-700">
-                        Auto-generate caption with AI
+                {/* AI Generation Options */}
+                {(postType === 'image' || postType === 'reel') && (
+                  <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
+                    <h3 className="text-sm font-medium text-gray-700">AI Caption & Comment Generation</h3>
+                    
+                    {/* Topic Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Topic
                       </label>
+                      <select
+                        value={automationTopic}
+                        onChange={(e) => setAutomationTopic(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
+                      >
+                        <option value="">Select a topic...</option>
+                        <option value="Jobs">Jobs</option>
+                        <option value="Princess leonar">Princess leonar</option>
+                        <option value="USA girl">USA girl</option>
+                        <option value="sheikha mahira">sheikha mahira</option>
+                      </select>
+                    </div>
+
+                    {/* Platform Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Platform
+                      </label>
+                      <select
+                        value={automationPlatform}
+                        onChange={(e) => setAutomationPlatform(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
+                      >
+                        <option value="facebook">Facebook</option>
+                        <option value="threads">Threads</option>
+                      </select>
+                    </div>
+
+                    {/* Link Option */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Link (Optional)
+                      </label>
+                      <input
+                        type="url"
+                        value={automationLink}
+                        onChange={(e) => setAutomationLink(e.target.value)}
+                        placeholder="https://example.com"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
+                      />
+                    </div>
+
+                    {/* Generation Buttons */}
+                    <div className="flex gap-3">
                       <button
                         type="button"
-                        onClick={() => setAutoGenerateCaption(!autoGenerateCaption)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:ring-offset-2 ${
-                          autoGenerateCaption ? 'bg-[var(--primary-highlight)]' : 'bg-gray-200'
-                        }`}
+                        onClick={generateBulkCaptions}
+                        disabled={isGeneratingAutomationCaptions || !automationTopic || multipleFiles.length === 0}
+                        className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${
-                            autoGenerateCaption ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
+                        {isGeneratingAutomationCaptions ? (
+                          <>
+                            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Generating...
+                          </>
+                        ) : (
+                          <>🤖 Generate Captions</>
+                        )}
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={generateBulkComments}
+                        disabled={isGeneratingAutomationComments || !automationTopic || multipleFiles.length === 0}
+                        className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {isGeneratingAutomationComments ? (
+                          <>
+                            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Generating...
+                          </>
+                        ) : (
+                          <>💬 Generate Comments</>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -1233,46 +1781,27 @@ function FacebookPosterContent() {
                   <textarea
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
-                    placeholder={autoGenerateCaption ? "Caption will be auto-generated when files are uploaded..." : "Enter your post content here...\n\nFor automation: Add multiple captions separated by '===' for rotation:\n\nCaption 1\n===\nCaption 2\n===\nCaption 3"}
+                    placeholder="Enter your post content here...\n\nFor automation: Add multiple captions separated by '===' for rotation:\n\nCaption 1\n===\nCaption 2\n===\nCaption 3"
                     rows={8}
-                    disabled={autoGenerateCaption}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none ${
-                      autoGenerateCaption ? 'bg-gray-50 text-gray-500' : ''
-                    }`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none"
                   />
-                  {!autoGenerateCaption && (
-                    <div className="mt-2">
-                      <p className="text-xs text-gray-500">
-                        💡 <strong>Tip for Automation:</strong> You can add multiple captions separated by &apos;===&apos; (three equal signs). Each caption will be used for different posts in rotation.
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        Example: &quot;Caption 1 === Caption 2 === Caption 3&quot;
-                      </p>
-                    </div>
-                  )}
-                  {autoGenerateCaption && (
-                    <div className="mt-2">
-                      {isGeneratingCaption ? (
-                        <div className="flex items-center space-x-2 text-sm text-blue-600">
-                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          <span>Generating caption with AI...</span>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-500">
-                          AI will analyze your {postType === 'image' ? 'images' : 'videos'} and generate engaging captions automatically when you upload files.
-                        </p>
-                      )}
-                    </div>
-                  )}
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-500">
+                      💡 <strong>Tip for Automation:</strong> You can add multiple captions separated by &apos;===&apos; (three equal signs). Each caption will be used for different posts in rotation.
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Example: &quot;Caption 1 === Caption 2 === Caption 3&quot;
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Or use the AI generation buttons above to automatically create captions and comments for all uploaded files.
+                    </p>
+                  </div>
                 </div>
 
                 {/* File Upload for Image/Video */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Upload {postType === 'image' ? 'Images' : 'Videos'} for Automation *
+                    Upload {postType === 'image' ? 'Images' : 'Reels'} for Automation *
                   </label>
                   
                   {multipleFiles.length === 0 ? (
@@ -1284,6 +1813,18 @@ function FacebookPosterContent() {
                          onChange={async (e) => {
                            if (e.target.files) {
                              const files = Array.from(e.target.files);
+                             
+                             // Validate reel files if post type is reel
+                             if (postType === 'reel') {
+                               for (const file of files) {
+                                 const validationError = await validateReelFile(file);
+                                 if (validationError) {
+                                   alert(`File "${file.name}": ${validationError}`);
+                                   return;
+                                 }
+                               }
+                             }
+                             
                              setIsUploading(true);
                              const uploadedFiles = [];
                              
@@ -1298,17 +1839,8 @@ function FacebookPosterContent() {
                              setMultipleFiles(uploadedFiles);
                              setIsUploading(false);
                              
-                             // Auto-generate caption if enabled and we have uploaded files
-                             if (autoGenerateCaption && uploadedFiles.length > 0) {
-                               const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
-                               await generateAutoCaption(uploadedFiles[0].url, mediaType);
-                             }
-                             
-                             // Auto-generate comment if enabled and we have uploaded files
-                             if (autoGenerateComment && uploadedFiles.length > 0) {
-                               const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
-                               await generateAutoComment(uploadedFiles[0].url, mediaType);
-                             }
+
+
                            }
                          }}
                          className="hidden"
@@ -1321,7 +1853,7 @@ function FacebookPosterContent() {
                           isUploading ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
                       >
-                        {isUploading ? 'Uploading...' : `Choose ${postType === 'image' ? 'Images' : 'Videos'}`}
+                        {isUploading ? 'Uploading...' : `Choose ${postType === 'image' ? 'Images' : 'Reels'}`}
                       </label>
                     </div>
                   ) : (
@@ -1389,17 +1921,8 @@ function FacebookPosterContent() {
                                  setMultipleFiles([...multipleFiles, ...uploadedFiles]);
                                  setIsUploading(false);
                                  
-                                 // Auto-generate caption if enabled and we have uploaded files
-                                 if (autoGenerateCaption && uploadedFiles.length > 0) {
-                                   const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
-                                   await generateAutoCaption(uploadedFiles[0].url, mediaType);
-                                 }
-                                 
-                                 // Auto-generate comment if enabled and we have uploaded files
-                                 if (autoGenerateComment && uploadedFiles.length > 0) {
-                                   const mediaType = postType === 'video' || postType === 'reel' ? 'video' : 'image';
-                                   await generateAutoComment(uploadedFiles[0].url, mediaType);
-                                 }
+
+
                                }
                              }}
                              className="hidden"
@@ -1416,6 +1939,90 @@ function FacebookPosterContent() {
                           </label>
                         </div>
                       </div>
+                    </div>
+                  )}
+                  
+                  {/* Individual Post Caption & Comment Editor */}
+                  {multipleFiles.length > 0 && (
+                    <div className="mt-4 space-y-4">
+                      <h4 className="text-sm font-medium text-gray-700">Edit Captions & Comments for Each Post</h4>
+                      {multipleFiles.map((uploadedFile, index) => (
+                        <div key={index} className="p-4 border border-gray-200 rounded-lg bg-white">
+                          <div className="flex gap-4">
+                            {/* File Preview */}
+                            <div className="flex-shrink-0">
+                              <div className="w-20 h-20 bg-gray-100 rounded-md border flex items-center justify-center">
+                                {postType === 'image' ? (
+                                  <img
+                                    src={uploadedFile.url}
+                                    alt={`Post ${index + 1}`}
+                                    className="w-full h-full object-cover rounded-md"
+                                  />
+                                ) : (
+                                  <video
+                                    src={uploadedFile.url}
+                                    className="w-full h-full object-cover rounded-md"
+                                    controls={false}
+                                    muted
+                                  />
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1 text-center">Post {index + 1}</p>
+                            </div>
+                            
+                            {/* Caption & Comment Fields */}
+                            <div className="flex-1 space-y-3">
+                              {/* Caption Field */}
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                  Caption
+                                </label>
+                                <textarea
+                                  value={postCaptions[index] || ''}
+                                  onChange={(e) => setPostCaptions(prev => ({...prev, [index]: e.target.value}))}
+                                  placeholder="Enter caption for this post..."
+                                  rows={3}
+                                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none"
+                                />
+                              </div>
+                              
+                              {/* Comment Field */}
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                  First Comment
+                                </label>
+                                <textarea
+                                  value={postComments[index] || ''}
+                                  onChange={(e) => setPostComments(prev => ({...prev, [index]: e.target.value}))}
+                                  placeholder="Enter first comment for this post..."
+                                  rows={2}
+                                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none"
+                                />
+                              </div>
+                              
+                              {/* Individual Generation Buttons */}
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => generateIndividualCaption(index)}
+                                  disabled={!automationTopic}
+                                  className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-md hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  🤖 Generate Caption
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => generateIndividualComment(index)}
+                                  disabled={!automationTopic}
+                                  className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-md hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  💬 Generate Comment
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1463,54 +2070,41 @@ function FacebookPosterContent() {
                   </div>
                   {postFirstComment && (
                     <div className="space-y-3">
-                      {/* AI Generate Comment Toggle */}
+                      {/* AI Generate Comment Button */}
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-gray-700">
-                          Auto-generate comment with AI
+                          First Comment
                         </label>
                         <button
                           type="button"
-                          onClick={() => setAutoGenerateComment(!autoGenerateComment)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:ring-offset-2 ${
-                            autoGenerateComment ? 'bg-[var(--primary-highlight)]' : 'bg-gray-200'
-                          }`}
+                          onClick={generateManualComment}
+                          disabled={isGeneratingComment}
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-[var(--primary-highlight)] hover:bg-[var(--primary-highlight)]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-highlight)] disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${
-                              autoGenerateComment ? 'translate-x-6' : 'translate-x-1'
-                            }`}
-                          />
+                          {isGeneratingComment ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              🤖 Generate Comment
+                            </>
+                          )}
                         </button>
                       </div>
                       
                       <textarea
                         value={firstComment}
                         onChange={(e) => setFirstComment(e.target.value)}
-                        placeholder={autoGenerateComment ? "Comment will be auto-generated when you upload media..." : "Enter your first comment here..."}
+                        placeholder="Enter your first comment here..."
                         rows={3}
-                        disabled={autoGenerateComment}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none ${
-                          autoGenerateComment ? 'bg-gray-50 text-gray-500' : ''
-                        }`}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none"
                       />
-                      
-                      {autoGenerateComment && (
-                        <div className="mt-2">
-                          {isGeneratingComment ? (
-                            <div className="flex items-center space-x-2 text-sm text-blue-600">
-                              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
-                              <span>Generating comment with AI...</span>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-gray-500">
-                              🤖 AI will generate an engaging first comment based on your post content and media.
-                            </p>
-                          )}
-                        </div>
-                      )}
+
                     </div>
                   )}
                 </div>
@@ -1612,19 +2206,7 @@ function FacebookPosterContent() {
                     {(() => {
                       const filteredPosts = filterPageId === 'all' 
                          ? scheduledPosts 
-                         : scheduledPosts.filter((post: {
-                             id: string;
-                             title: string;
-                             postType: string;
-                             pageName: string;
-                             pageId: string;
-                             status: string;
-                             scheduledFor: string;
-                             createdAt: string;
-                             postedAt?: string;
-                             facebookPostId?: string;
-                             intervalMinutes?: number;
-                           }) => post.pageId === filterPageId);
+                         : scheduledPosts.filter(post => post.pageId === filterPageId);
                       
                       return filteredPosts.length === 0 ? (
                         <tr>
@@ -1633,19 +2215,7 @@ function FacebookPosterContent() {
                           </td>
                         </tr>
                       ) : (
-                        filteredPosts.map((post: {
-                        id: string;
-                        title: string;
-                        postType: string;
-                        pageName: string;
-                        pageId: string;
-                        status: string;
-                        scheduledFor: string;
-                        createdAt: string;
-                        postedAt?: string;
-                        facebookPostId?: string;
-                        intervalMinutes?: number;
-                      }) => {
+                        filteredPosts.map(post => {
                         const page = facebookPages.find(p => p.id === post.pageId);
                         return (
                         <tr key={post.id}>

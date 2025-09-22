@@ -20,7 +20,7 @@ export default function CaptionGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
   const [postTypeDropdownOpen, setPostTypeDropdownOpen] = useState(false);
-  const [captionCountDropdownOpen, setCaptionCountDropdownOpen] = useState(false);
+  const [, setCaptionCountDropdownOpen] = useState(false);
   
   // Link functionality
   const [includeLink, setIncludeLink] = useState(false);
@@ -30,7 +30,7 @@ export default function CaptionGenerator() {
   const [autoMode, setAutoMode] = useState(false);
   
   // Individual comment generation
-  const [generatingComments, setGeneratingComments] = useState<{[key: number]: boolean}>({});
+  const [, setGeneratingComments] = useState<{[key: number]: boolean}>({});
   
   // Load saved state from localStorage on component mount
   useEffect(() => {
@@ -147,56 +147,7 @@ export default function CaptionGenerator() {
     }
   };
 
-  const generateIndividualComment = async (captionIndex: number, caption: string) => {
-    setGeneratingComments(prev => ({ ...prev, [captionIndex]: true }));
-    
-    try {
-      const apiKey = localStorage.getItem('gemini_api_key');
-      
-      if (!apiKey) {
-        alert('Please set your Gemini API key in Settings first.');
-        return;
-      }
-      
-      const response = await fetch('/api/generate-caption', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          apiKey,
-          platform,
-          topic: selectedTopic,
-          postType: selectedPostType,
-          captionCount: 1,
-           generateComments: true,
-           specificCaption: caption,
-          includeLink,
-          linkUrl: includeLink ? linkUrl : undefined
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to generate comment');
-      }
-      
-      const data = await response.json();
-      
-      if (data.comments && data.comments[0]) {
-        setGeneratedContent(prev => {
-          if (!prev) return prev;
-          const newComments = [...(prev.comments || [])];
-          newComments[captionIndex] = data.comments[0];
-          return { ...prev, comments: newComments };
-        });
-      }
-    } catch (error) {
-      console.error('Error generating comment:', error);
-      alert('Failed to generate comment. Please try again.');
-    } finally {
-      setGeneratingComments(prev => ({ ...prev, [captionIndex]: false }));
-    }
-  };
+  // Removed unused generateIndividualComment function
 
   const copyToClipboard = async (text: string, isCaption: boolean = false) => {
     try {

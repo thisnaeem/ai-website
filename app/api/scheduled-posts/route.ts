@@ -35,7 +35,10 @@ export async function POST(request: NextRequest) {
       intervalMinutes,
       isRecurring,
       firstComment,
-      postFirstComment
+      postFirstComment,
+      status,
+      facebookPostId,
+      postedAt
     } = await request.json();
 
     if (!title || !pageId || !scheduledFor) {
@@ -59,7 +62,9 @@ export async function POST(request: NextRequest) {
         isRecurring: isRecurring || false,
         firstComment: firstComment || null,
         postFirstComment: postFirstComment || false,
-        status: 'scheduled'
+        status: status || 'scheduled',
+        facebookPostId: facebookPostId || null,
+        postedAt: postedAt ? new Date(postedAt) : null
       }
     });
 

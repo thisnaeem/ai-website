@@ -6,7 +6,7 @@ async function checkConnectivity() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
-    const response = await fetch('https://graph.facebook.com/v18.0/', {
+    await fetch('https://graph.facebook.com/v18.0/', {
       method: 'GET',
       signal: controller.signal
     });
