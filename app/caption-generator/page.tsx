@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { userSettingsAPI } from '@/lib/api';
 
 type Platform = 'facebook' | 'threads';
 type Topic = 'Jobs' | 'Princess leonar' | 'USA girl' | 'sheikha mahira';
@@ -28,6 +29,22 @@ export default function CaptionGenerator() {
   
   // Auto mode functionality
   const [autoMode, setAutoMode] = useState(false);
+  
+  // Auto mode timer
+  const [autoTimer, setAutoTimer] = useState<NodeJS.Timeout | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const [autoInterval, setAutoInterval] = useState<number>(10); // minutes
+
+  // Helper function to get Gemini API key from database
+  const getGeminiApiKey = async (): Promise<string | null> => {
+    try {
+      const settings = await userSettingsAPI.getSettings();
+      return settings.geminiApiKey || null;
+    } catch (error) {
+      console.error('Error fetching Gemini API key from database:', error);
+      return null;
+    }
+  };
   
   // Individual comment generation
   // const [, setGeneratingComments] = useState<{[key: number]: boolean}>({});
@@ -105,8 +122,8 @@ export default function CaptionGenerator() {
     setGeneratedContent(null);
     
     try {
-      // Get API key from localStorage
-      const apiKey = localStorage.getItem('gemini_api_key');
+      // Get API key from database
+      const apiKey = await getGeminiApiKey();
       
       if (!apiKey) {
         alert('Please set your Gemini API key in Settings first.');

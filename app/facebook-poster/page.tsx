@@ -84,6 +84,17 @@ function FacebookPosterContent() {
     params.set('tab', tab);
     router.push(`?${params.toString()}`);
   };
+
+  // Helper function to get Gemini API key from database
+  const getGeminiApiKey = async (): Promise<string | null> => {
+    try {
+      const settings = await userSettingsAPI.getSettings();
+      return settings.geminiApiKey || null;
+    } catch (error) {
+      console.error('Error fetching Gemini API key from database:', error);
+      return null;
+    }
+  };
   
   // Function to handle page selection with persistence
   const handlePageSelection = async (pageId: string) => {
@@ -545,10 +556,11 @@ function FacebookPosterContent() {
     setIsGeneratingCaption(true);
     
     try {
-      const apiKey = localStorage.getItem('gemini_api_key');
+      const apiKey = await getGeminiApiKey();
       
       if (!apiKey) {
         showToast('Please set your Gemini API key in Settings first.', 'error');
+        setIsGeneratingCaption(false);
         return;
       }
       
@@ -591,10 +603,11 @@ function FacebookPosterContent() {
     setIsGeneratingComment(true);
     
     try {
-      const apiKey = localStorage.getItem('gemini_api_key');
+      const apiKey = await getGeminiApiKey();
       
       if (!apiKey) {
         showToast('Please set your Gemini API key in Settings first.', 'error');
+        setIsGeneratingComment(false);
         return;
       }
       
@@ -638,10 +651,11 @@ function FacebookPosterContent() {
     setIsGeneratingAutomationCaptions(true);
     
     try {
-      const apiKey = localStorage.getItem('gemini_api_key');
+      const apiKey = await getGeminiApiKey();
       
       if (!apiKey) {
         showToast('Please set your Gemini API key in Settings first.', 'error');
+        setIsGeneratingAutomationCaptions(false);
         return;
       }
       
@@ -692,10 +706,11 @@ function FacebookPosterContent() {
     setIsGeneratingAutomationComments(true);
     
     try {
-      const apiKey = localStorage.getItem('gemini_api_key');
+      const apiKey = await getGeminiApiKey();
       
       if (!apiKey) {
         showToast('Please set your Gemini API key in Settings first.', 'error');
+        setIsGeneratingAutomationComments(false);
         return;
       }
       
@@ -744,7 +759,7 @@ function FacebookPosterContent() {
     if (!automationTopic) return;
     
     try {
-      const apiKey = localStorage.getItem('gemini_api_key');
+      const apiKey = await getGeminiApiKey();
       
       if (!apiKey) {
         showToast('Please set your Gemini API key in Settings first.', 'error');
@@ -790,7 +805,7 @@ function FacebookPosterContent() {
     if (!automationTopic) return;
     
     try {
-      const apiKey = localStorage.getItem('gemini_api_key');
+      const apiKey = await getGeminiApiKey();
       
       if (!apiKey) {
         showToast('Please set your Gemini API key in Settings first.', 'error');

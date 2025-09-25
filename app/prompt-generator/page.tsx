@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { userSettingsAPI } from '@/lib/api';
 
 type PromptType = 'image' | 'video';
 type StyleType = 'realistic' | 'artistic' | 'cinematic' | 'abstract' | 'vintage' | 'futuristic' | 'minimalist';
@@ -67,6 +68,17 @@ export default function PromptGenerator() {
     { value: 'intense', label: 'Intense' },
     { value: 'dreamy', label: 'Dreamy' }
   ];
+
+  // Helper function to get Gemini API key from database
+  const getGeminiApiKey = async (): Promise<string | null> => {
+    try {
+      const settings = await userSettingsAPI.getSettings();
+      return settings.geminiApiKey || null;
+    } catch (error) {
+      console.error('Error fetching Gemini API key from database:', error);
+      return null;
+    }
+  };
 
   // Load saved state from localStorage on component mount
   useEffect(() => {
@@ -139,8 +151,8 @@ export default function PromptGenerator() {
     setGeneratedPrompts([]);
     
     try {
-      // Get API key from localStorage
-      const apiKey = localStorage.getItem('gemini_api_key');
+      // Get API key from database
+      const apiKey = await getGeminiApiKey();
       
       if (!apiKey) {
         alert('Please set your Gemini API key in Settings first.');

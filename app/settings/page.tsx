@@ -127,13 +127,13 @@ export default function Settings() {
     try {
       const response = await testAPI.testGeminiKey(apiKey.trim());
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to test API key');
+      // The apiCall function already returns parsed JSON, not a Response object
+      if (response.success) {
+        setMessage('API key is valid and working!');
+        setMessageType('success');
+      } else {
+        throw new Error(response.message || 'Failed to test API key');
       }
-      
-      setMessage('API key is valid and working!');
-      setMessageType('success');
     } catch (error) {
       setMessage(`API key test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setMessageType('error');
