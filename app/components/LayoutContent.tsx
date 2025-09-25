@@ -20,8 +20,8 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
     );
   }
 
-  // Login page layout
-  if (pathname === '/login') {
+  // Login and register page layout
+  if (pathname === '/login' || pathname === '/register') {
     return (
       <div className="min-h-screen bg-gray-50">
         {children}

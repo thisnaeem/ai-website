@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { startScheduler, isSchedulerRunning } from '@/lib/scheduler';
+import { userSettingsAPI, facebookPagesAPI, postsAPI } from '@/lib/api';
 
 type PostType = 'text' | 'image' | 'video' | 'carousel' | 'reel';
 
@@ -46,7 +46,7 @@ function FacebookPosterContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   
-  const [postType, setPostType] = useState<PostType>('image');
+  const [postType, setPostType] = useState<PostType>('text');
   const [selectedPageId, setSelectedPageId] = useState('');
   const [facebookPages, setFacebookPages] = useState<FacebookPage[]>([]);
   const [postContent, setPostContent] = useState('');
@@ -86,9 +86,15 @@ function FacebookPosterContent() {
   };
   
   // Function to handle page selection with persistence
-  const handlePageSelection = (pageId: string) => {
+  const handlePageSelection = async (pageId: string) => {
     setSelectedPageId(pageId);
-    localStorage.setItem('selected_page_id', pageId);
+    try {
+      await facebookPagesAPI.setSelectedPage(pageId);
+    } catch (error) {
+      console.error('Error saving selected page to database:', error);
+      // Fallback to localStorage for backward compatibility
+      localStorage.setItem('selected_page_id', pageId);
+    }
     setIsDropdownOpen(false);
   };
   
@@ -169,13 +175,38 @@ function FacebookPosterContent() {
   // Load scheduled posts
   const loadScheduledPosts = async () => {
     try {
-      const response = await fetch('/api/scheduled-posts');
-      if (response.ok) {
-        const posts = await response.json();
-        setScheduledPosts(posts);
-      }
+      const result = await postsAPI.getScheduledPosts();
+      // Extract posts array from the response data structure
+      const posts = result.posts || [];
+      setScheduledPosts(posts);
     } catch (error) {
       console.error('Error loading scheduled posts:', error);
+      // Set empty array on error to prevent filter issues
+      setScheduledPosts([]);
+    }
+  };
+
+  // Sync Facebook pages with backend
+  const syncFacebookPages = async (pages: FacebookPage[]) => {
+    try {
+      console.log('Syncing Facebook pages with backend:', pages);
+      const response = await fetch('http://localhost:3002/api/facebook-pages/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(pages),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Facebook pages synced successfully:', result);
+        return result;
+      } else {
+        console.error('Failed to sync Facebook pages:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Error syncing Facebook pages:', error);
     }
   };
 
@@ -214,31 +245,22 @@ function FacebookPosterContent() {
         const individualCaption = postCaptions[i] || postContent || '';
         const individualComment = postComments[i] || firstComment || '';
         
-        const response = await fetch('/api/scheduled-posts', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            title: postType === 'image' ? 'Image' : 'Reel',
-            content: individualCaption,
-            postType,
-            mediaUrls: [mediaUrl], // Single media URL per post
-            carouselImages: [],
-            pageId: selectedPageId,
-            pageName: selectedPage?.name || '',
-            scheduledFor: scheduledTime.toISOString(),
-            intervalMinutes: intervalMinutes,
-            isRecurring: true,
-            firstComment: individualComment,
-            postFirstComment: postFirstComment || !!individualComment
-          })
+        const postData = await postsAPI.createScheduledPost({
+          title: postType === 'image' ? 'Image' : 'Reel',
+          content: individualCaption,
+          postType,
+          mediaUrls: [mediaUrl], // Single media URL per post
+          carouselImages: [],
+          pageId: selectedPageId,
+          pageName: selectedPage?.name || '',
+          scheduledFor: scheduledTime.toISOString(),
+          intervalMinutes: null, // No interval for one-time posts
+          isRecurring: false, // One-time posts only
+          firstComment: individualComment,
+          postFirstComment: postFirstComment || !!individualComment
         });
         
-        if (response.ok) {
-          const postData = await response.json();
-          createdPosts.push(postData);
-        }
+        createdPosts.push(postData);
       }
       
       if (createdPosts.length > 0) {
@@ -264,16 +286,9 @@ function FacebookPosterContent() {
   // Delete a scheduled post
   const deleteScheduledPost = async (postId: string) => {
     try {
-      const response = await fetch(`/api/scheduled-posts?id=${postId}`, {
-        method: 'DELETE'
-      });
-      
-      if (response.ok) {
-        showToast('Post deleted successfully!', 'success');
-        loadScheduledPosts();
-      } else {
-        throw new Error('Failed to delete post');
-      }
+      await postsAPI.deleteScheduledPost(postId);
+      showToast('Post deleted successfully!', 'success');
+      loadScheduledPosts();
     } catch (error) {
       console.error('Error deleting post:', error);
       showToast('Failed to delete post', 'error');
@@ -283,24 +298,12 @@ function FacebookPosterContent() {
   // Update a scheduled post's interval
   const updateScheduledPost = async (postId: string, newIntervalMinutes: number) => {
     try {
-      const response = await fetch('/api/scheduled-posts', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          id: postId,
-          intervalMinutes: newIntervalMinutes
-        })
+      await postsAPI.updateScheduledPost(postId, {
+        intervalMinutes: newIntervalMinutes
       });
-      
-      if (response.ok) {
-        showToast('Post interval updated successfully!', 'success');
-        setEditingPostId(null);
-        loadScheduledPosts();
-      } else {
-        throw new Error('Failed to update post');
-      }
+      showToast('Post interval updated successfully!', 'success');
+      setEditingPostId(null);
+      loadScheduledPosts();
     } catch (error) {
       console.error('Error updating post:', error);
       showToast('Failed to update post', 'error');
@@ -322,24 +325,9 @@ function FacebookPosterContent() {
   // Stop automation for all or specific page
   const stopAutomation = async (pageId: string = 'all') => {
     try {
-      const response = await fetch('/api/scheduled-posts/bulk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'stop_automation',
-          pageId
-        })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        showToast(result.message, 'success');
-        loadScheduledPosts();
-      } else {
-        throw new Error('Failed to stop automation');
-      }
+      const result = await postsAPI.stopAutomation(pageId);
+      showToast(result.message, 'success');
+      loadScheduledPosts();
     } catch (error) {
       console.error('Error stopping automation:', error);
       showToast('Failed to stop automation', 'error');
@@ -353,24 +341,9 @@ function FacebookPosterContent() {
     }
     
     try {
-      const response = await fetch('/api/scheduled-posts/bulk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'delete_all',
-          pageId
-        })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        showToast(result.message, 'success');
-        loadScheduledPosts();
-      } else {
-        throw new Error('Failed to delete posts');
-      }
+      const result = await postsAPI.deleteAllScheduledPosts(pageId);
+      showToast(result.message, 'success');
+      loadScheduledPosts();
     } catch (error) {
       console.error('Error deleting posts:', error);
       showToast('Failed to delete posts', 'error');
@@ -387,38 +360,77 @@ function FacebookPosterContent() {
   ];
 
   useEffect(() => {
-    // Load Facebook pages from localStorage
-    const savedPages = localStorage.getItem('facebook_pages');
-    if (savedPages) {
-      const pages = JSON.parse(savedPages);
-      setFacebookPages(pages);
-      
-      // Load previously selected page or default to first page
-      const savedSelectedPageId = localStorage.getItem('selected_page_id');
-      if (savedSelectedPageId && pages.find((p: FacebookPage) => p.id === savedSelectedPageId)) {
-        setSelectedPageId(savedSelectedPageId);
-      } else if (pages.length > 0) {
-        setSelectedPageId(pages[0].id);
-        localStorage.setItem('selected_page_id', pages[0].id);
+    // Load data from database
+    const loadData = async () => {
+      try {
+        // Load Facebook pages from database
+        const pages = await facebookPagesAPI.getUserPages();
+        setFacebookPages(pages);
+        
+        // Load selected page from database
+        try {
+          const selectedPage = await facebookPagesAPI.getSelectedPage();
+          if (selectedPage && pages.find((p: FacebookPage) => p.id === selectedPage.id)) {
+            setSelectedPageId(selectedPage.id);
+          } else if (pages.length > 0) {
+            setSelectedPageId(pages[0].id);
+            // Set first page as selected if none is selected
+            await facebookPagesAPI.setSelectedPage(pages[0].id);
+          }
+        } catch (error) {
+          // If no selected page, default to first page
+          if (pages.length > 0) {
+            setSelectedPageId(pages[0].id);
+            await facebookPagesAPI.setSelectedPage(pages[0].id);
+          }
+        }
+        
+        // Load Cloudinary config from database
+        const settings = await userSettingsAPI.getSettings();
+        if (settings.cloudinaryCloudName && settings.cloudinaryApiKey && settings.cloudinaryApiSecret) {
+          setCloudinaryConfig({
+            cloudName: settings.cloudinaryCloudName,
+            apiKey: settings.cloudinaryApiKey,
+            apiSecret: settings.cloudinaryApiSecret
+          });
+        }
+      } catch (error) {
+        console.error('Error loading data from database:', error);
+        
+        // Fallback to localStorage for backward compatibility
+        const savedPages = localStorage.getItem('facebook_pages');
+        if (savedPages) {
+          const pages = JSON.parse(savedPages);
+          setFacebookPages(pages);
+          
+          // Sync pages with backend
+          syncFacebookPages(pages);
+          
+          // Load previously selected page or default to first page
+          const savedSelectedPageId = localStorage.getItem('selected_page_id');
+          if (savedSelectedPageId && pages.find((p: FacebookPage) => p.id === savedSelectedPageId)) {
+            setSelectedPageId(savedSelectedPageId);
+          } else if (pages.length > 0) {
+            setSelectedPageId(pages[0].id);
+            localStorage.setItem('selected_page_id', pages[0].id);
+          }
+        }
+        
+        // Load Cloudinary config from localStorage
+        const cloudName = localStorage.getItem('cloudinary_cloud_name');
+        const apiKey = localStorage.getItem('cloudinary_api_key');
+        const apiSecret = localStorage.getItem('cloudinary_api_secret');
+        
+        if (cloudName && apiKey && apiSecret) {
+          setCloudinaryConfig({ cloudName, apiKey, apiSecret });
+        }
       }
-    }
+    };
     
-    // Load Cloudinary config from localStorage
-    const cloudName = localStorage.getItem('cloudinary_cloud_name');
-    const apiKey = localStorage.getItem('cloudinary_api_key');
-    const apiSecret = localStorage.getItem('cloudinary_api_secret');
-    
-    if (cloudName && apiKey && apiSecret) {
-      setCloudinaryConfig({ cloudName, apiKey, apiSecret });
-    }
+    loadData();
     
     // Load scheduled posts
     loadScheduledPosts();
-    
-    // Auto-start scheduler if Facebook pages are available
-    if (savedPages && JSON.parse(savedPages).length > 0 && !isSchedulerRunning()) {
-      startScheduler();
-    }
   }, []);
 
   // Load scheduled posts when switching to scheduled tab
@@ -876,7 +888,7 @@ function FacebookPosterContent() {
       try {
         const selectedPage = facebookPages.find(page => page.id === selectedPageId);
         if (selectedPage) {
-          await fetch('/api/scheduled-posts', {
+          await fetch('http://localhost:3002/api/posts', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1123,7 +1135,7 @@ function FacebookPosterContent() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center justify-between w-full">
                       <label className="block text-sm font-medium text-gray-700">
-                        Post Content {postType === 'text' ? '*' : '(Optional)'}
+                        Caption {postType === 'text' ? '*' : '(Optional)'}
                       </label>
                       {(postType === 'image' || postType === 'video' || postType === 'reel') && mediaUrl && (
                         <div className="flex items-center space-x-2">
@@ -1174,15 +1186,11 @@ function FacebookPosterContent() {
                   <textarea
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
-                    placeholder={"Enter your post content here...\n\nTip: Add multiple captions separated by '===' for variety:\n\nCaption 1\n===\nCaption 2\n===\nCaption 3"}
+                    placeholder="Enter your caption here..."
                     rows={6}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
                   />
-                  <div className="mt-1">
-                    <p className="text-xs text-gray-500">
-                      💡 <strong>Multiple Captions:</strong> Separate different caption variations with &apos;===&apos; (three equal signs) for more engaging content options.
-                    </p>
-                  </div>
+
                 </div>
 
                 {/* Media Upload for single media posts */}
@@ -1439,129 +1447,6 @@ function FacebookPosterContent() {
                     {isPosting ? 'Posting...' : 'Post to Facebook'}
                   </button>
                 </div>
-
-                {/* Posted Posts Section */}
-                <div className="mt-8 pt-8 border-t border-gray-200">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Posted Posts</h3>
-                  
-                  {/* Filter by Page */}
-                  <div className="mb-4">
-                    <label className="text-sm font-medium text-gray-700">Filter by Page:</label>
-                    <select
-                      value={filterPageId}
-                      onChange={(e) => setFilterPageId(e.target.value)}
-                      className="ml-2 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">All Pages</option>
-                      {facebookPages.map((page) => (
-                        <option key={page.id} value={page.id}>
-                          {page.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Posted Posts Table */}
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Page
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Content
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Type
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Posted At
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Status
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {scheduledPosts
-                          .filter(post => post.status === 'posted')
-                          .filter(post => !filterPageId || post.pageId === filterPageId)
-                          .map((post) => {
-                            const page = facebookPages.find(p => p.id === post.pageId);
-                            return (
-                              <tr key={post.id}>
-                                <td className="px-4 py-4 text-sm font-medium text-gray-900">
-                                  <div className="flex items-center space-x-2">
-                                    {page?.picture ? (
-                                      <img
-                                        src={page.picture}
-                                        alt={`${page.name} profile`}
-                                        className="w-8 h-8 rounded-full object-cover"
-                                      />
-                                    ) : (
-                                      <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
-                                        <span className="text-xs font-medium text-gray-600">
-                                          {page?.name?.charAt(0) || '?'}
-                                        </span>
-                                      </div>
-                                    )}
-                                    <span>{page?.name || 'Unknown Page'}</span>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-4 text-sm text-gray-900">
-                                  <div className="max-w-xs truncate">
-                                    {post.content || 'No content'}
-                                  </div>
-                                </td>
-                                <td className="px-4 py-4 text-sm text-gray-900">
-                                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                    post.postType === 'image' ? 'bg-blue-100 text-blue-800' :
-                                    post.postType === 'video' ? 'bg-purple-100 text-purple-800' :
-                                    post.postType === 'reel' ? 'bg-pink-100 text-pink-800' :
-                                    post.postType === 'carousel' ? 'bg-green-100 text-green-800' :
-                                    'bg-gray-100 text-gray-800'
-                                  }`}>
-                                    {post.postType}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-4 text-sm text-gray-900">
-                                  {new Date(post.postedAt || post.scheduledFor).toLocaleString()}
-                                </td>
-                                <td className="px-4 py-4 text-sm text-gray-900">
-                                  <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                                    Posted
-                                  </span>
-                                </td>
-                                <td className="px-4 py-4 text-sm text-gray-900">
-                                  <div className="flex space-x-2">
-                                    {post.facebookPostId && (
-                                      <a
-                                        href={`https://www.facebook.com/${post.facebookPostId}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 text-xs font-medium"
-                                      >
-                                        View on Facebook
-                                      </a>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                    {scheduledPosts.filter(post => post.status === 'posted').filter(post => !filterPageId || post.pageId === filterPageId).length === 0 && (
-                      <div className="text-center py-8">
-                        <p className="text-gray-500">No posted posts found.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -1776,26 +1661,16 @@ function FacebookPosterContent() {
                 {/* Post Content */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Post Content (Optional)
+                    Caption (Optional)
                   </label>
                   <textarea
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
-                    placeholder="Enter your post content here...\n\nFor automation: Add multiple captions separated by '===' for rotation:\n\nCaption 1\n===\nCaption 2\n===\nCaption 3"
+                    placeholder="Enter your caption here..."
                     rows={8}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none"
                   />
-                  <div className="mt-2">
-                    <p className="text-xs text-gray-500">
-                      💡 <strong>Tip for Automation:</strong> You can add multiple captions separated by &apos;===&apos; (three equal signs). Each caption will be used for different posts in rotation.
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Example: &quot;Caption 1 === Caption 2 === Caption 3&quot;
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Or use the AI generation buttons above to automatically create captions and comments for all uploaded files.
-                    </p>
-                  </div>
+
                 </div>
 
                 {/* File Upload for Image/Video */}

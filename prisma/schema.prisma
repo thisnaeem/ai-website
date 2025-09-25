@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,44 +7,140 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model FacebookPage {
-  id            String   @id // Facebook Page ID
-  name          String
-  accessToken   String
-  picture       String?
-  followersCount Int?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  // Relation to scheduled posts
+model User {
+  id             String             @id @default(cuid())
+  email          String             @unique
+  username       String             @unique
+  firstName      String
+  lastName       String
+  password       String
+  role           UserRole           @default(USER)
+  isActive       Boolean            @default(true)
+  emailVerified  Boolean            @default(false)
+  lastLogin      DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
   scheduledPosts ScheduledPost[]
-  
+  facebookPages  UserFacebookPage[]
+  sessions       UserSession[]
+  settings       UserSettings?
+
+  @@map("users")
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+}
+
+model UserSettings {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  geminiApiKey            String?
+  cloudinaryCloudName     String?
+  cloudinaryApiKey        String?
+  cloudinaryApiSecret     String?
+  captionPlatform         String?
+  captionTopic            String?
+  captionPostType         String?
+  captionCount            Int?
+  captionIncludeLink      Boolean  @default(false)
+  captionLinkUrl          String?
+  captionAutoMode         Boolean  @default(false)
+  promptType              String?
+  promptStyle             String?
+  promptEnvironment       String?
+  promptTheme             String?
+  promptMood              String?
+  promptCount             Int?
+  promptAdditionalDetails String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model FacebookPage {
+  id             String             @id
+  name           String
+  accessToken    String
+  picture        String?
+  followersCount Int?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  scheduledPosts ScheduledPost[]
+  userPages      UserFacebookPage[]
+
   @@map("facebook_pages")
 }
 
+model UserFacebookPage {
+  id           String       @id @default(cuid())
+  userId       String
+  pageId       String
+  isSelected   Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  facebookPage FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pageId])
+  @@map("user_facebook_pages")
+}
+
+
+
 model ScheduledPost {
-  id            String   @id @default(cuid())
-  title         String
-  content       String?
-  postType      String   // 'text', 'image', 'video', 'carousel'
-  mediaUrls     String[] // Array of media URLs
-  carouselImages String[] // Array of carousel image URLs
-  pageId        String
-  pageName      String
-  status        String   @default("scheduled") // 'scheduled', 'posted', 'failed', 'cancelled'
-  scheduledFor  DateTime
-  intervalMinutes Int?   // For recurring posts
-  isRecurring   Boolean  @default(false)
-  firstComment  String?
-  postFirstComment Boolean @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  postedAt      DateTime?
-  facebookPostId String?
-  errorMessage  String?
-  
-  // Relation to Facebook page
-  facebookPage  FacebookPage @relation(fields: [pageId], references: [id])
+  id               String       @id @default(cuid())
+  title            String
+  content          String?
+  postType         String
+  mediaUrls        String[]
+  carouselImages   String[]
+  pageId           String
+  pageName         String
+  status           String       @default("scheduled")
+  scheduledFor     DateTime
+  intervalMinutes  Int?
+  isRecurring      Boolean      @default(false)
+  firstComment     String?
+  postFirstComment Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  postedAt         DateTime?
+  facebookPostId   String?
+  errorMessage     String?
+  userId           String
+  facebookPage     FacebookPage @relation(fields: [pageId], references: [id])
+  user             User         @relation(fields: [userId], references: [id])
 
   @@map("scheduled_posts")
+}
+
+model CronJob {
+  id             String    @id @default(cuid())
+  name           String    @unique
+  cronExpression String
+  isActive       Boolean   @default(true)
+  lastRun        DateTime?
+  nextRun        DateTime?
+  runCount       Int       @default(0)
+  errorCount     Int       @default(0)
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("cron_jobs")
+}
+
+enum UserRole {
+  ADMIN
+  USER
 }

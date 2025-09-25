@@ -30,7 +30,7 @@ export default function CaptionGenerator() {
   const [autoMode, setAutoMode] = useState(false);
   
   // Individual comment generation
-  const [, setGeneratingComments] = useState<{[key: number]: boolean}>({});
+  // const [, setGeneratingComments] = useState<{[key: number]: boolean}>({});
   
   // Load saved state from localStorage on component mount
   useEffect(() => {

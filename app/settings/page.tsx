@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { userSettingsAPI, facebookPagesAPI, testAPI } from '@/lib/api';
 
 export default function Settings() {
   const [apiKey, setApiKey] = useState('');
@@ -14,6 +15,8 @@ export default function Settings() {
   const [newPageToken, setNewPageToken] = useState('');
   const [isAddingPage, setIsAddingPage] = useState(false);
   
+
+  
   // Cloudinary state
   const [cloudinaryCloudName, setCloudinaryCloudName] = useState('');
   const [cloudinaryApiKey, setCloudinaryApiKey] = useState('');
@@ -23,71 +26,97 @@ export default function Settings() {
   const [isTestingCloudinary, setIsTestingCloudinary] = useState(false);
 
   useEffect(() => {
-    // Load API key from localStorage on component mount
-    const savedApiKey = localStorage.getItem('gemini_api_key');
-    if (savedApiKey) {
-      setApiKey(savedApiKey);
-    }
-    
-    // Load Facebook pages from localStorage and sync to database
-    const savedPages = localStorage.getItem('facebook_pages');
-    if (savedPages) {
-      const pages = JSON.parse(savedPages);
-      setFacebookPages(pages);
-      
-      // Sync existing pages to database
-      if (pages.length > 0) {
-        fetch('/api/facebook-pages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pages })
-        }).catch(error => {
-          console.error('Failed to sync existing pages to database:', error);
-        });
+    // Load settings from database
+    const loadSettings = async () => {
+      try {
+        // Load user settings
+        const settings = await userSettingsAPI.getSettings();
+        if (settings.geminiApiKey) {
+          setApiKey(settings.geminiApiKey);
+        }
+        if (settings.cloudinaryCloudName) {
+          setCloudinaryCloudName(settings.cloudinaryCloudName);
+        }
+        if (settings.cloudinaryApiKey) {
+          setCloudinaryApiKey(settings.cloudinaryApiKey);
+        }
+        if (settings.cloudinaryApiSecret) {
+          setCloudinaryApiSecret(settings.cloudinaryApiSecret);
+        }
+
+        // Load Facebook pages
+        const pages = await facebookPagesAPI.getUserPages();
+        setFacebookPages(pages);
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        // Fallback to localStorage for backward compatibility
+        const savedApiKey = localStorage.getItem('gemini_api_key');
+        if (savedApiKey) {
+          setApiKey(savedApiKey);
+        }
+
+        const savedPages = localStorage.getItem('facebook_pages');
+        if (savedPages) {
+          try {
+            setFacebookPages(JSON.parse(savedPages));
+          } catch (error) {
+            console.error('Error parsing saved Facebook pages:', error);
+          }
+        }
+
+        const savedCloudName = localStorage.getItem('cloudinary_cloud_name');
+        const savedApiKeyLocal = localStorage.getItem('cloudinary_api_key');
+        const savedApiSecret = localStorage.getItem('cloudinary_api_secret');
+        
+        if (savedCloudName) setCloudinaryCloudName(savedCloudName);
+        if (savedApiKeyLocal) setCloudinaryApiKey(savedApiKeyLocal);
+        if (savedApiSecret) setCloudinaryApiSecret(savedApiSecret);
       }
-    }
-    
-    // Load Cloudinary config from localStorage
-    const savedCloudName = localStorage.getItem('cloudinary_cloud_name');
-    const savedCloudinaryApiKey = localStorage.getItem('cloudinary_api_key');
-    const savedApiSecret = localStorage.getItem('cloudinary_api_secret');
-    if (savedCloudName) setCloudinaryCloudName(savedCloudName);
-    if (savedCloudinaryApiKey) setCloudinaryApiKey(savedCloudinaryApiKey);
-    if (savedApiSecret) setCloudinaryApiSecret(savedApiSecret);
+    };
+
+    loadSettings();
   }, []);
 
   const handleSaveApiKey = async () => {
+    if (!apiKey.trim()) {
+      setMessage('Please enter an API key.');
+      setMessageType('error');
+      return;
+    }
+
     setIsLoading(true);
-    setMessage('');
-    
     try {
-      if (!apiKey.trim()) {
-        throw new Error('Please enter a valid API key');
-      }
-      
-      // Save to localStorage
-      localStorage.setItem('gemini_api_key', apiKey.trim());
-      
+      await userSettingsAPI.updateApiKey(apiKey.trim());
       setMessage('API key saved successfully!');
       setMessageType('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Failed to save API key');
+      console.error('Error saving API key:', error);
+      setMessage(`Failed to save API key: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setMessageType('error');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleClearApiKey = () => {
-    setApiKey('');
-    localStorage.removeItem('gemini_api_key');
-    setMessage('API key cleared successfully!');
-    setMessageType('success');
+  const handleClearApiKey = async () => {
+    setIsLoading(true);
+    try {
+      await userSettingsAPI.updateApiKey('');
+      setApiKey('');
+      setMessage('API key cleared successfully!');
+      setMessageType('success');
+    } catch (error) {
+      console.error('Error clearing API key:', error);
+      setMessage(`Failed to clear API key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setMessageType('error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const testApiKey = async () => {
     if (!apiKey.trim()) {
-      setMessage('Please enter an API key first');
+      setMessage('Please enter an API key first.');
       setMessageType('error');
       return;
     }
@@ -96,23 +125,17 @@ export default function Settings() {
     setMessage('');
     
     try {
-      // Test the API key with a simple request
-      const response = await fetch('/api/test-gemini', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ apiKey: apiKey.trim() }),
-      });
+      const response = await testAPI.testGeminiKey(apiKey.trim());
       
-      if (response.ok) {
-        setMessage('API key is valid!');
-        setMessageType('success');
-      } else {
-        throw new Error('Invalid API key');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to test API key');
       }
-    } catch {
-      setMessage('API key test failed. Please check your key.');
+      
+      setMessage('API key is valid and working!');
+      setMessageType('success');
+    } catch (error) {
+      setMessage(`API key test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setMessageType('error');
     } finally {
       setIsLoading(false);
@@ -121,56 +144,46 @@ export default function Settings() {
 
   const addFacebookPage = async () => {
     if (!newPageId.trim() || !newPageToken.trim()) {
-      setMessage('Please fill in Page ID and Access Token.');
+      setMessage('Please fill in all fields.');
       setMessageType('error');
       return;
     }
 
     setIsLoading(true);
-    
+    setMessage('');
+
     try {
       // Fetch page details from Facebook Graph API
-       const response = await fetch(`https://graph.facebook.com/v18.0/${newPageId.trim()}?fields=name,id,picture,followers_count&access_token=${newPageToken.trim()}`);
+      const response = await fetch(`https://graph.facebook.com/v18.0/${newPageId}?fields=id,name,picture,followers_count&access_token=${newPageToken}`);
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'Failed to fetch page details');
+        throw new Error('Failed to fetch page details. Please check your Page ID and Access Token.');
       }
-      
+
       const pageData = await response.json();
       
       const newPage = {
-         id: pageData.id,
-         name: pageData.name,
-         accessToken: newPageToken.trim(),
-         picture: pageData.picture?.data?.url || '',
-         followersCount: pageData.followers_count || 0
-       };
+        id: pageData.id,
+        name: pageData.name,
+        accessToken: newPageToken.trim(),
+        picture: pageData.picture?.data?.url,
+        followersCount: pageData.followers_count
+      };
 
+      // Update local state
       const updatedPages = [...facebookPages, newPage];
       setFacebookPages(updatedPages);
-      localStorage.setItem('facebook_pages', JSON.stringify(updatedPages));
       
       // Sync to database
-      try {
-        await fetch('/api/facebook-pages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pages: updatedPages })
-        });
-      } catch (syncError) {
-        console.error('Failed to sync to database:', syncError);
-      }
-      
-      // Clear form
+      await facebookPagesAPI.syncUserPages(updatedPages);
+
+      setMessage('Facebook page added successfully!');
+      setMessageType('success');
+      setIsAddingPage(false);
       setNewPageId('');
       setNewPageToken('');
-      setIsAddingPage(false);
-      
-      setMessage(`Facebook page "${pageData.name}" added successfully!`);
-      setMessageType('success');
     } catch (error) {
-      setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to add Facebook page'}`);
+      setMessage(`Failed to add page: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setMessageType('error');
     } finally {
       setIsLoading(false);
@@ -178,38 +191,51 @@ export default function Settings() {
   };
 
   const removeFacebookPage = async (pageId: string) => {
-    const updatedPages = facebookPages.filter(page => page.id !== pageId);
-    setFacebookPages(updatedPages);
-    localStorage.setItem('facebook_pages', JSON.stringify(updatedPages));
-    
-    // Remove from database
     try {
-      await fetch('/api/facebook-pages', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pageId })
-      });
-    } catch (syncError) {
-      console.error('Failed to remove from database:', syncError);
+      // Remove from database
+      await facebookPagesAPI.removeUserPage(pageId);
+      
+      // Update local state
+      const updatedPages = facebookPages.filter(page => page.id !== pageId);
+      setFacebookPages(updatedPages);
+      
+      setMessage('Facebook page removed successfully!');
+      setMessageType('success');
+    } catch (error) {
+      console.error('Failed to remove page:', error);
+      setMessage(`Failed to remove page: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setMessageType('error');
     }
-    
-    setMessage('Facebook page removed successfully!');
-    setMessageType('success');
   };
 
-   const saveCloudinaryConfig = () => {
+
+
+
+
+    const saveCloudinaryConfig = async () => {
      if (!cloudinaryCloudName.trim() || !cloudinaryApiKey.trim() || !cloudinaryApiSecret.trim()) {
        setCloudinaryMessage('Please fill in all Cloudinary fields.');
        setCloudinaryMessageType('error');
        return;
      }
 
-     localStorage.setItem('cloudinary_cloud_name', cloudinaryCloudName.trim());
-     localStorage.setItem('cloudinary_api_key', cloudinaryApiKey.trim());
-     localStorage.setItem('cloudinary_api_secret', cloudinaryApiSecret.trim());
-     
-     setCloudinaryMessage('Cloudinary configuration saved successfully!');
-     setCloudinaryMessageType('success');
+     setIsTestingCloudinary(true);
+     try {
+       await userSettingsAPI.updateCloudinaryConfig({
+         cloudinaryCloudName: cloudinaryCloudName.trim(),
+         cloudinaryApiKey: cloudinaryApiKey.trim(),
+         cloudinaryApiSecret: cloudinaryApiSecret.trim()
+       });
+       
+       setCloudinaryMessage('Cloudinary configuration saved successfully!');
+       setCloudinaryMessageType('success');
+     } catch (error) {
+       console.error('Error saving Cloudinary config:', error);
+       setCloudinaryMessage(`Failed to save configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+       setCloudinaryMessageType('error');
+     } finally {
+       setIsTestingCloudinary(false);
+     }
    };
 
    const testCloudinaryConnection = async () => {
@@ -223,16 +249,10 @@ export default function Settings() {
      setCloudinaryMessage('');
      
      try {
-       const response = await fetch('/api/test-cloudinary', {
-         method: 'POST',
-         headers: {
-           'Content-Type': 'application/json',
-         },
-         body: JSON.stringify({
-           cloudName: cloudinaryCloudName.trim(),
-           apiKey: cloudinaryApiKey.trim(),
-           apiSecret: cloudinaryApiSecret.trim()
-         })
+       const response = await testAPI.testCloudinary({
+         cloudinaryCloudName: cloudinaryCloudName.trim(),
+         cloudinaryApiKey: cloudinaryApiKey.trim(),
+         cloudinaryApiSecret: cloudinaryApiSecret.trim()
        });
        
        if (!response.ok) {
@@ -442,7 +462,7 @@ export default function Settings() {
             {/* Existing Pages */}
             {facebookPages.length > 0 && (
               <div className="mb-6">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Configured Pages</h4>
+                
                 <div className="space-y-3">
                    {facebookPages.map((page) => (
                      <div key={page.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
@@ -541,7 +561,7 @@ export default function Settings() {
           </div>
         </div>
 
-        
+
     </div>
   );
 }

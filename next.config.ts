@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: 'standalone',
+  // Enable static optimization
+  trailingSlash: false,
+  // Disable x-powered-by header
+  poweredByHeader: false,
 };
 
 export default nextConfig;

@@ -1,4 +1,39 @@
-# Deployment Guide for Vercel
+# Deployment Guide
+
+This guide will help you deploy your AI Website to various platforms including Vercel and Coolify with proper database connectivity.
+
+## Coolify Deployment (Recommended for Self-Hosting)
+
+### Prerequisites
+- Coolify instance running
+- Backend API deployed separately
+- Docker support
+
+### 1. Create a new project in Coolify
+- Go to your Coolify dashboard
+- Create a new project
+- Choose "Git Repository" as source
+
+### 2. Configure the application
+- **Repository**: Your GitHub repository URL
+- **Branch**: main (or your preferred branch)
+- **Build Pack**: Docker
+- **Dockerfile**: `Dockerfile` (in root directory)
+
+### 3. Environment Variables in Coolify
+Set the following environment variables:
+
+```
+NEXT_PUBLIC_API_URL=https://your-backend-domain.com/api
+DATABASE_URL=postgresql://username:password@host:port/database?schema=public
+NODE_ENV=production
+```
+
+### 4. Build Configuration
+- **Port**: 3000
+- **Health Check Path**: `/`
+
+## Vercel Deployment
 
 This guide will help you deploy your AI Website to Vercel with proper database connectivity.
 
@@ -92,8 +127,11 @@ postgresql://[user]:[password]@[host]/[dbname]?sslmode=require
 
 After deployment:
 1. Check Vercel function logs for any database connection errors
-2. Test the `/api/scheduled-posts` endpoint
+2. Test the NestJS backend endpoints:
+   - `http://localhost:3002/api/posts` (scheduled posts)
+   - `http://localhost:3002/api/scheduler/status` (scheduler status)
 3. Verify data persistence across deployments
+4. Ensure the NestJS scheduler backend is running on port 3002
 
 ## Local Development vs Production
 
