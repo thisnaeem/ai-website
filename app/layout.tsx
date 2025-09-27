@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "./components/AuthProvider";
-import LayoutContent from "./components/LayoutContent";
+import LayoutContent from "./components/LayoutContent";  
 
 const figtree = Figtree({
   variable: "--font-figtree",
