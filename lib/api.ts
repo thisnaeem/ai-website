@@ -42,7 +42,45 @@ const getAuthToken = () => {
   return null;
 };
 
-// Generic API call function
+// Function to refresh access token
+async function refreshAccessToken(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  
+  const refreshToken = localStorage.getItem('refreshToken');
+  
+  if (!refreshToken) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      localStorage.setItem('accessToken', data.accessToken);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      return true;
+    } else {
+      // Refresh token is invalid, clear storage
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      return false;
+    }
+  } catch (error) {
+    console.error('Token refresh failed:', error);
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    return false;
+  }
+}
+
+// Generic API call function with automatic token refresh
 async function apiCall(endpoint: string, options: RequestInit = {}) {
   const token = getAuthToken();
   
@@ -55,7 +93,27 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
     },
   };
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+  let response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+  
+  // If unauthorized and we have a refresh token, try to refresh
+  if (response.status === 401 && typeof window !== 'undefined') {
+    const refreshSuccess = await refreshAccessToken();
+    
+    if (refreshSuccess) {
+      // Retry the request with new token
+      const newToken = getAuthToken();
+      const retryConfig: RequestInit = {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(newToken && { Authorization: `Bearer ${newToken}` }),
+          ...options.headers,
+        },
+      };
+      
+      response = await fetch(`${API_BASE_URL}${endpoint}`, retryConfig);
+    }
+  }
   
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));

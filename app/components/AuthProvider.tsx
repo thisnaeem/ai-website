@@ -31,6 +31,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  // Function to refresh access token
+  const refreshAccessToken = async (): Promise<boolean> => {
+    const refreshToken = localStorage.getItem('refreshToken');
+    
+    if (!refreshToken) {
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        localStorage.setItem('accessToken', data.accessToken);
+        localStorage.setItem('refreshToken', data.refreshToken);
+        return true;
+      } else {
+        // Refresh token is invalid, clear storage
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        return false;
+      }
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      return false;
+    }
+  };
+
   useEffect(() => {
     // Check if user is authenticated on mount
     const checkAuth = async () => {
@@ -49,8 +85,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const userData = await response.json();
             setUser(userData);
             setIsAuthenticated(true);
+          } else if (response.status === 401) {
+            // Token is expired, try to refresh
+            console.log('Access token expired, attempting to refresh...');
+            const refreshSuccess = await refreshAccessToken();
+            
+            if (refreshSuccess) {
+              // Retry with new token
+              const newToken = localStorage.getItem('accessToken');
+              const retryResponse = await fetch(`${API_BASE_URL}/auth/profile`, {
+                headers: {
+                  'Authorization': `Bearer ${newToken}`,
+                },
+              });
+              
+              if (retryResponse.ok) {
+                const userData = await retryResponse.json();
+                setUser(userData);
+                setIsAuthenticated(true);
+                console.log('Token refreshed successfully');
+              } else {
+                // Still failed after refresh
+                setIsAuthenticated(false);
+                setUser(null);
+              }
+            } else {
+              // Refresh failed
+              setIsAuthenticated(false);
+              setUser(null);
+            }
           } else {
-            // Token is invalid, clear it
+            // Other error, clear tokens
             localStorage.removeItem('accessToken');
             localStorage.removeItem('refreshToken');
             setIsAuthenticated(false);
@@ -58,10 +123,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } catch (error) {
           console.error('Auth check failed:', error);
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          setIsAuthenticated(false);
-          setUser(null);
+          // Try to refresh token on network error as well
+          const refreshSuccess = await refreshAccessToken();
+          if (!refreshSuccess) {
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            setIsAuthenticated(false);
+            setUser(null);
+          }
         }
       } else {
         setIsAuthenticated(false);
@@ -80,6 +149,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       router.push('/login');
     }
   }, [isAuthenticated, isLoading, pathname, router]);
+
+  // Set up periodic token refresh
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Refresh token every 45 minutes (access token expires in 1 hour)
+    const refreshInterval = setInterval(async () => {
+      console.log('Performing periodic token refresh...');
+      const refreshSuccess = await refreshAccessToken();
+      
+      if (!refreshSuccess) {
+        console.log('Periodic token refresh failed, logging out...');
+        setIsAuthenticated(false);
+        setUser(null);
+        router.push('/login');
+      } else {
+        console.log('Periodic token refresh successful');
+      }
+    }, 45 * 60 * 1000); // 45 minutes
+
+    return () => clearInterval(refreshInterval);
+  }, [isAuthenticated, router]);
 
   const login = async (emailOrUsername: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
