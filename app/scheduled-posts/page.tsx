@@ -258,14 +258,19 @@ export default function ScheduledPosts() {
                        ? scheduledPosts 
                        : scheduledPosts.filter(post => post.pageId === filterPageId);
                     
-                    return filteredPosts.length === 0 ? (
+                    // Sort posts by creation date (latest first)
+                    const sortedPosts = filteredPosts.sort((a, b) => 
+                      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                    );
+                    
+                    return sortedPosts.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="px-4 py-4 text-center text-gray-500">
                           {filterPageId === 'all' ? 'No scheduled posts yet' : 'No posts found for selected page'}
                         </td>
                       </tr>
                     ) : (
-                      filteredPosts.map(post => {
+                      sortedPosts.map(post => {
                       const page = facebookPages.find(p => p.id === post.pageId);
                       return (
                       <tr key={post.id}>

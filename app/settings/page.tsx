@@ -279,11 +279,118 @@ export default function Settings() {
         </p>
       </div>
 
-        <div className="card">
-          <div className="px-6 py-8">
-            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
-              Gemini API Configuration
-            </h3>
+      {/* Facebook Pages Management - Moved to top */}
+      <div className="card">
+        <div className="px-6 py-8">
+          <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
+            Facebook Pages
+          </h3>
+          
+          {/* Existing Pages */}
+          {facebookPages.length > 0 && (
+            <div className="mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {facebookPages.map((page) => (
+                  <div key={page.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
+                    <div className="flex items-center space-x-3 flex-1 min-w-0">
+                      {page.picture && (
+                        <img
+                          src={page.picture}
+                          alt={`${page.name} profile`}
+                          className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-gray-900 truncate">{page.name}</div>
+                        <div className="text-xs text-gray-500 truncate">
+                          ID: {page.id}
+                          {page.followersCount !== undefined && (
+                            <span className="block">• {page.followersCount.toLocaleString()} followers</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeFacebookPage(page.id)}
+                      className="text-red-600 hover:text-red-800 text-sm font-medium flex-shrink-0 ml-2"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Add New Page */}
+          {!isAddingPage ? (
+            <button
+              onClick={() => setIsAddingPage(true)}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg btn-primary"
+            >
+              Add Facebook Page
+            </button>
+          ) : (
+            <div className="space-y-4 p-4 border border-gray-200 rounded-md">
+              <h4 className="text-sm font-medium text-gray-700">Add New Facebook Page</h4>
+              <p className="text-sm text-gray-600">Enter your Page ID and Access Token. We&apos;ll automatically fetch the page name.</p>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Page ID *
+                </label>
+                <input
+                  type="text"
+                  value={newPageId}
+                  onChange={(e) => setNewPageId(e.target.value)}
+                  placeholder="Enter Facebook page ID"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Page Access Token *
+                </label>
+                <input
+                  type="password"
+                  value={newPageToken}
+                  onChange={(e) => setNewPageToken(e.target.value)}
+                  placeholder="Enter page access token"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
+                />
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={addFacebookPage}
+                  disabled={isLoading}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isLoading ? 'Adding Page...' : 'Add Page'}
+                </button>
+                <button
+                  onClick={() => {
+                    setIsAddingPage(false);
+                    setNewPageId('');
+                    setNewPageToken('');
+                  }}
+                  disabled={isLoading}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="px-6 py-8">
+          <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
+            Gemini API Configuration
+          </h3>
             
             <div className="space-y-4">
               <div>
@@ -452,114 +559,7 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Facebook Pages Management */}
-        <div className="card">
-          <div className="px-6 py-8">
-            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
-              Facebook Pages
-            </h3>
-            
-            {/* Existing Pages */}
-            {facebookPages.length > 0 && (
-              <div className="mb-6">
-                
-                <div className="space-y-3">
-                   {facebookPages.map((page) => (
-                     <div key={page.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                       <div className="flex items-center space-x-3">
-                         {page.picture && (
-                           <img
-                             src={page.picture}
-                             alt={`${page.name} profile`}
-                             className="w-10 h-10 rounded-full object-cover"
-                           />
-                         )}
-                         <div>
-                           <div className="font-medium text-gray-900">{page.name}</div>
-                           <div className="text-sm text-gray-500">
-                             ID: {page.id}
-                             {page.followersCount !== undefined && (
-                               <span className="ml-2">• {page.followersCount.toLocaleString()} followers</span>
-                             )}
-                           </div>
-                         </div>
-                       </div>
-                       <button
-                         onClick={() => removeFacebookPage(page.id)}
-                         className="text-red-600 hover:text-red-800 text-sm font-medium"
-                       >
-                         Remove
-                       </button>
-                     </div>
-                   ))}
-                 </div>
-              </div>
-            )}
-            
-            {/* Add New Page */}
-            {!isAddingPage ? (
-              <button
-                onClick={() => setIsAddingPage(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg btn-primary"
-              >
-                Add Facebook Page
-              </button>
-            ) : (
-              <div className="space-y-4 p-4 border border-gray-200 rounded-md">
-                 <h4 className="text-sm font-medium text-gray-700">Add New Facebook Page</h4>
-                 <p className="text-sm text-gray-600">Enter your Page ID and Access Token. We&apos;ll automatically fetch the page name.</p>
-                 
-                 <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                     Page ID *
-                   </label>
-                   <input
-                     type="text"
-                     value={newPageId}
-                     onChange={(e) => setNewPageId(e.target.value)}
-                     placeholder="Enter Facebook page ID"
-                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
-                   />
-                 </div>
-                 
-                 <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                     Page Access Token *
-                   </label>
-                   <input
-                     type="password"
-                     value={newPageToken}
-                     onChange={(e) => setNewPageToken(e.target.value)}
-                     placeholder="Enter page access token"
-                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
-                   />
-                 </div>
-                 
-                 <div className="flex gap-3">
-                   <button
-                     onClick={addFacebookPage}
-                     disabled={isLoading}
-                     className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                   >
-                     {isLoading ? 'Adding Page...' : 'Add Page'}
-                   </button>
-                   <button
-                     onClick={() => {
-                       setIsAddingPage(false);
-                       setNewPageId('');
-                       setNewPageToken('');
-                     }}
-                     disabled={isLoading}
-                     className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                   >
-                     Cancel
-                   </button>
-                 </div>
-               </div>
-            )}
-            
-          </div>
-        </div>
+
 
 
     </div>

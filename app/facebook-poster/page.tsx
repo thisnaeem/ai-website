@@ -82,11 +82,17 @@ function FacebookPosterContent() {
   const [captionFileRef, setCaptionFileRef] = useState<HTMLInputElement | null>(null);
   const [commentFileRef, setCommentFileRef] = useState<HTMLInputElement | null>(null);
   
-  // Get active tab from URL or default to manual
-  const activeTab = (searchParams.get('tab') as 'manual' | 'automation' | 'scheduled') || 'manual';
+  // Text automation state variables
+  const [uploadedTexts, setUploadedTexts] = useState<string[]>([]);
+  const [textFileRef, setTextFileRef] = useState<HTMLInputElement | null>(null);
+  const [isGeneratingAutomationTexts, setIsGeneratingAutomationTexts] = useState(false);
+  const [textGenerationMode, setTextGenerationMode] = useState<'ai' | 'manual'>('ai');
   
+  // Get active tab from URL or default to manual
+  const activeTab = (searchParams.get('tab') as 'manual' | 'automation') || 'manual';
+
   // Function to handle tab changes
-  const setActiveTab = (tab: 'manual' | 'automation' | 'scheduled') => {
+  const setActiveTab = (tab: 'manual' | 'automation') => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
     router.push(`?${params.toString()}`);
@@ -119,6 +125,7 @@ function FacebookPosterContent() {
   // Automation specific states
   const [intervalMinutes, setIntervalMinutes] = useState<number>(10);
   const [multipleFiles, setMultipleFiles] = useState<UploadedFile[]>([]);
+  const [postsCount, setPostsCount] = useState<number>(5);
   
   // Filter state for scheduled posts
   const [filterPageId, setFilterPageId] = useState<string>('all');
@@ -230,55 +237,81 @@ function FacebookPosterContent() {
 
   // Schedule a new post
   const schedulePost = async () => {
-    if (!selectedPageId || multipleFiles.length === 0) {
-      showToast('Please select a page and upload a file', 'error');
+    if (!selectedPageId || (postType === 'text' ? uploadedTexts.length === 0 : multipleFiles.length === 0)) {
+      showToast(`Please select a page and ${postType === 'text' ? 'upload text posts' : 'upload a file'}`, 'error');
       return;
     }
 
     try {
       setIsPosting(true);
       
-      const mediaUrls: string[] = [];
-      
-      // Use already uploaded Cloudinary URLs
-      if (multipleFiles.length > 0) {
-        for (const uploadedFile of multipleFiles) {
-          mediaUrls.push(uploadedFile.url);
-        }
-      }
-      
       const selectedPage = facebookPages.find(page => page.id === selectedPageId);
       
       // Schedule for immediate posting (current time)
       const now = new Date();
       
-      // Create individual posts for each uploaded file
+      // Create individual posts
       const createdPosts = [];
       
-      for (let i = 0; i < mediaUrls.length; i++) {
-         const mediaUrl = mediaUrls[i];
-         const scheduledTime = i === 0 ? now : new Date(now.getTime() + (i * intervalMinutes * 60000)); // First post immediate, rest staggered
+      if (postType === 'text') {
+        // Handle text posts
+        for (let i = 0; i < uploadedTexts.length; i++) {
+          const textContent = uploadedTexts[i];
+          const scheduledTime = i === 0 ? now : new Date(now.getTime() + (i * intervalMinutes * 60000)); // First post immediate, rest staggered
+          
+          const postData = await postsAPI.createScheduledPost({
+            title: 'Text Post',
+            content: textContent,
+            postType,
+            mediaUrls: [], // No media URLs for text posts
+            carouselImages: [],
+            pageId: selectedPageId,
+            pageName: selectedPage?.name || '',
+            scheduledFor: scheduledTime.toISOString(),
+            intervalMinutes: null, // No interval for one-time posts
+            isRecurring: false, // One-time posts only
+            firstComment: firstComment || '',
+            postFirstComment: postFirstComment || !!firstComment
+          });
+          
+          createdPosts.push(postData);
+        }
+      } else {
+        // Handle media posts (image/video/reel)
+        const mediaUrls: string[] = [];
         
-        // Use individual caption and comment for each post if available
-        const individualCaption = postCaptions[i] || postContent || '';
-        const individualComment = postComments[i] || firstComment || '';
+        // Use already uploaded Cloudinary URLs
+        if (multipleFiles.length > 0) {
+          for (const uploadedFile of multipleFiles) {
+            mediaUrls.push(uploadedFile.url);
+          }
+        }
         
-        const postData = await postsAPI.createScheduledPost({
-          title: postType === 'image' ? 'Image' : 'Reel',
-          content: individualCaption,
-          postType,
-          mediaUrls: [mediaUrl], // Single media URL per post
-          carouselImages: [],
-          pageId: selectedPageId,
-          pageName: selectedPage?.name || '',
-          scheduledFor: scheduledTime.toISOString(),
-          intervalMinutes: null, // No interval for one-time posts
-          isRecurring: false, // One-time posts only
-          firstComment: individualComment,
-          postFirstComment: postFirstComment || !!individualComment
-        });
-        
-        createdPosts.push(postData);
+        for (let i = 0; i < mediaUrls.length; i++) {
+           const mediaUrl = mediaUrls[i];
+           const scheduledTime = i === 0 ? now : new Date(now.getTime() + (i * intervalMinutes * 60000)); // First post immediate, rest staggered
+          
+          // Use individual caption and comment for each post if available
+          const individualCaption = postCaptions[i] || postContent || '';
+          const individualComment = postComments[i] || firstComment || '';
+          
+          const postData = await postsAPI.createScheduledPost({
+            title: postType === 'image' ? 'Image' : 'Reel',
+            content: individualCaption,
+            postType,
+            mediaUrls: [mediaUrl], // Single media URL per post
+            carouselImages: [],
+            pageId: selectedPageId,
+            pageName: selectedPage?.name || '',
+            scheduledFor: scheduledTime.toISOString(),
+            intervalMinutes: null, // No interval for one-time posts
+            isRecurring: false, // One-time posts only
+            firstComment: individualComment,
+            postFirstComment: postFirstComment || !!individualComment
+          });
+          
+          createdPosts.push(postData);
+        }
       }
       
       if (createdPosts.length > 0) {
@@ -286,6 +319,7 @@ function FacebookPosterContent() {
          // Clear form
          setPostContent('');
          setMultipleFiles([]);
+         setUploadedTexts([]);
          setFirstComment('');
          setPostFirstComment(false);
          // Reload scheduled posts
@@ -451,12 +485,7 @@ function FacebookPosterContent() {
     loadScheduledPosts();
   }, []);
 
-  // Load scheduled posts when switching to scheduled tab
-  useEffect(() => {
-    if (activeTab === 'scheduled') {
-      loadScheduledPosts();
-    }
-  }, [activeTab]);
+
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -907,6 +936,63 @@ function FacebookPosterContent() {
     }
   };
 
+  // Text automation functions
+  const handleTextFileUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      const texts = content.split('===').map(text => text.trim()).filter(text => text.length > 0);
+      setUploadedTexts(texts);
+      showToast(`${texts.length} text posts loaded successfully!`, 'success');
+    };
+    reader.readAsText(file);
+  };
+
+  const generateBulkTexts = async () => {
+    if (!automationTopic) return;
+    
+    setIsGeneratingAutomationTexts(true);
+    
+    try {
+      const apiKey = await getGeminiApiKey();
+      
+      if (!apiKey) {
+        showToast('Please set your Gemini API key in Settings first.', 'error');
+        setIsGeneratingAutomationTexts(false);
+        return;
+      }
+      
+      const response = await fetch('/api/generate-text-posts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiKey,
+          topic: automationTopic,
+          platform: automationPlatform,
+          count: postsCount
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate text posts');
+      }
+      
+      const data = await response.json();
+      if (data.texts && Array.isArray(data.texts)) {
+        setUploadedTexts(data.texts);
+        showToast(`Generated ${data.texts.length} unique text posts successfully! 🤖`, 'success');
+      }
+    } catch (error) {
+      console.error('Error generating bulk texts:', error);
+      showToast(`Failed to generate text posts: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsGeneratingAutomationTexts(false);
+    }
+  };
+
   const postToFacebook = async () => {
     if (!selectedPageId) {
       alert('Please select a Facebook page first.');
@@ -1076,16 +1162,7 @@ function FacebookPosterContent() {
         >
           Automation
         </button>
-        <button
-          onClick={() => setActiveTab('scheduled')}
-          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors duration-200 ${
-            activeTab === 'scheduled'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-600 hover:text-gray-800'
-          }`}
-        >
-          Scheduled Posts
-        </button>
+
       </div>
 
       {facebookPages.length === 0 && (
@@ -1206,11 +1283,12 @@ function FacebookPosterContent() {
                 </div>
 
                 {/* Post Content */}
+                {postType !== 'text' && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center justify-between w-full">
                       <label className="block text-sm font-medium text-gray-700">
-                        Caption {postType === 'text' ? '*' : '(Optional)'}
+                        Caption (Optional)
                       </label>
                       {(postType === 'image' || postType === 'video' || postType === 'reel') && mediaUrl && (
                         <div className="flex items-center space-x-2">
@@ -1267,6 +1345,7 @@ function FacebookPosterContent() {
                   />
 
                 </div>
+                )}
 
                 {/* Media Upload for single media posts */}
                 {(postType === 'image' || postType === 'video' || postType === 'reel') && (
@@ -1591,17 +1670,17 @@ function FacebookPosterContent() {
                   </div>
                 </div>
 
-                {/* Post Type Selection - Image, Video, and Reel for automation */}
+                {/* Post Type Selection - Image, Video, Reel, and Text for automation */}
                 <div>
                   <label className="text-base font-medium text-gray-900">Post Type</label>
                   <div className="mt-4">
-                    <div className="relative inline-flex bg-gray-100 rounded-lg p-1 w-full max-w-md">
+                    <div className="relative inline-flex bg-gray-100 rounded-lg p-1 w-full max-w-lg">
                       <div
                         className={`absolute top-1 bottom-1 rounded-md transition-transform duration-200 ease-in-out`}
                         style={{ 
                           backgroundColor: '#3b82f6',
-                          width: '33.33%',
-                          left: postType === 'image' ? '0%' : postType === 'video' ? '33.33%' : '66.66%'
+                          width: '25%',
+                          left: postType === 'image' ? '0%' : postType === 'video' ? '25%' : postType === 'reel' ? '50%' : '75%'
                         }}
                       />
                       <button
@@ -1634,12 +1713,22 @@ function FacebookPosterContent() {
                       >
                         Reel
                       </button>
+                      <button
+                        onClick={() => setPostType('text')}
+                        className={`relative z-10 flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors duration-200 ${
+                          postType === 'text'
+                            ? 'text-black'
+                            : 'text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
+                        Text
+                      </button>
                     </div>
                   </div>
                 </div>
 
                 {/* AI Generation Options */}
-                {(postType === 'image' || postType === 'reel') && (
+                {(postType === 'image' || postType === 'video' || postType === 'reel') && (
                   <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
                     <h3 className="text-sm font-medium text-gray-700">Caption & Comment Generation</h3>
                     
@@ -1843,22 +1932,185 @@ function FacebookPosterContent() {
                   </div>
                 )}
 
-                {/* Post Content */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Caption (Optional)
-                  </label>
-                  <textarea
-                    value={postContent}
-                    onChange={(e) => setPostContent(e.target.value)}
-                    placeholder="Enter your caption here..."
-                    rows={8}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)] resize-none"
-                  />
+                {/* Text Automation Options */}
+                {postType === 'text' && (
+                  <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
+                    <h3 className="text-sm font-medium text-gray-700">Text Post Generation</h3>
+                    
+                    {/* Generation Mode Toggle */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Generation Mode
+                      </label>
+                      <div className="relative inline-flex bg-gray-100 rounded-lg p-1 w-full max-w-xs">
+                        <div
+                          className={`absolute top-1 bottom-1 rounded-md transition-transform duration-200 ease-in-out bg-white shadow-sm ${
+                            textGenerationMode === 'ai' ? 'left-1 right-1/2' : 'left-1/2 right-1'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setTextGenerationMode('ai')}
+                          className={`relative z-10 flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
+                            textGenerationMode === 'ai'
+                              ? 'text-gray-900'
+                              : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          AI
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTextGenerationMode('manual')}
+                          className={`relative z-10 flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
+                            textGenerationMode === 'manual'
+                              ? 'text-gray-900'
+                              : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          Manual
+                        </button>
+                      </div>
+                    </div>
 
-                </div>
+                    {/* AI Generation Section */}
+                    {textGenerationMode === 'ai' && (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              Topic/Niche
+                            </label>
+                            <input
+                              type="text"
+                              value={automationTopic}
+                              onChange={(e) => setAutomationTopic(e.target.value)}
+                              placeholder="e.g., fitness, cooking, travel"
+                              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              Number of Posts
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="20"
+                              value={postsCount}
+                              onChange={(e) => setPostsCount(parseInt(e.target.value) || 1)}
+                              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary-highlight)] focus:border-[var(--primary-highlight)]"
+                            />
+                          </div>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={generateBulkTexts}
+                          disabled={!automationTopic || isGeneratingAutomationTexts}
+                          className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[var(--primary-highlight)] hover:bg-[var(--primary-highlight)]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-highlight)] disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isGeneratingAutomationTexts ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Generating Text Posts...
+                            </>
+                          ) : (
+                            <>
+                              🤖 Generate Text Posts
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Manual File Upload Section */}
+                    {textGenerationMode === 'manual' && (
+                      <div className="space-y-3">
+                        <div className="text-xs text-gray-600 bg-blue-50 p-3 rounded-md border border-blue-200">
+                          <p className="font-medium mb-1">File Format Instructions:</p>
+                          <p>Upload a .txt file with each text post separated by <code className="bg-blue-100 px-1 rounded">===</code></p>
+                          <p className="mt-1">Example:</p>
+                          <pre className="text-xs mt-1 bg-blue-100 p-2 rounded">
+First text post content here...
+
+===
+
+Second text post content here...
+
+===
+
+Third text post content here...
+                          </pre>
+                        </div>
+                        
+                        <div>
+                          <input
+                            type="file"
+                            accept=".txt"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                handleTextFileUpload(file);
+                              }
+                            }}
+                            className="hidden"
+                            ref={(el) => setTextFileRef(el)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => textFileRef?.click()}
+                            className="w-full inline-flex items-center justify-center px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:border-gray-400 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-highlight)]"
+                          >
+                            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <span>Upload Text Posts File</span>
+                          </button>
+                          {uploadedTexts.length > 0 && (
+                            <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-md">
+                              <p className="text-sm text-green-700 font-medium">
+                                ✓ {uploadedTexts.length} text posts loaded successfully
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Text Posts Preview */}
+                    {uploadedTexts.length > 0 && (
+                      <div className="mt-4 space-y-3">
+                        <h4 className="text-sm font-medium text-gray-700">Text Posts Preview ({uploadedTexts.length} posts)</h4>
+                        <div className="max-h-60 overflow-y-auto space-y-2">
+                          {uploadedTexts.slice(0, 5).map((text, index) => (
+                            <div key={index} className="p-3 bg-white border border-gray-200 rounded-md">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <p className="text-xs text-gray-500 mb-1">Post {index + 1}</p>
+                                  <p className="text-sm text-gray-800 line-clamp-3">{text}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {uploadedTexts.length > 5 && (
+                            <div className="text-center py-2">
+                              <p className="text-xs text-gray-500">... and {uploadedTexts.length - 5} more posts</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+
 
                 {/* File Upload for Image/Video */}
+                {postType !== 'text' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Upload {postType === 'image' ? 'Images' : 'Reels'} for Automation *
@@ -2086,6 +2338,7 @@ function FacebookPosterContent() {
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Scheduling */}
                 <div>
@@ -2173,7 +2426,7 @@ function FacebookPosterContent() {
                  <div>
                    <button
                      onClick={schedulePost}
-                     disabled={isPosting || !selectedPageId || multipleFiles.length === 0}
+                     disabled={isPosting || !selectedPageId || (postType === 'text' ? uploadedTexts.length === 0 : multipleFiles.length === 0)}
                      className="w-full flex justify-center py-3 px-6 border border-transparent rounded-lg text-sm font-semibold btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                    >
                      {isPosting ? 'Starting Automation...' : 'Start Automation'}
@@ -2184,209 +2437,7 @@ function FacebookPosterContent() {
           </div>
            )}
 
-          {/* Scheduled Posts Tab */}
-          {activeTab === 'scheduled' && (
-          <div className="card">
-            <div className="px-6 py-8">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900">Scheduled Posts</h3>
-                
-                {/* Page Filter */}
-                <div className="flex items-center space-x-2">
-                  <label className="text-sm font-medium text-gray-700">Filter by Page:</label>
-                  <select
-                    value={filterPageId}
-                    onChange={(e) => setFilterPageId(e.target.value)}
-                    className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="all">All Pages</option>
-                    {facebookPages.map((page) => (
-                      <option key={page.id} value={page.id}>
-                        {page.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              
-              {/* Bulk Actions */}
-              <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center space-x-4">
-                  <h4 className="text-sm font-medium text-gray-700">Bulk Actions:</h4>
-                  <button
-                    onClick={() => stopAutomation(filterPageId)}
-                    className="px-3 py-2 bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200 text-sm font-medium transition-colors"
-                  >
-                    {filterPageId === 'all' ? 'Stop All Automation' : 'Stop Page Automation'}
-                  </button>
-                  <button
-                    onClick={() => deleteAllScheduledPosts(filterPageId)}
-                    className="px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 text-sm font-medium transition-colors"
-                  >
-                    {filterPageId === 'all' ? 'Delete All Posts' : 'Delete Page Posts'}
-                  </button>
-                </div>
-                <div className="text-xs text-gray-500">
-                  {filterPageId === 'all' ? 'Actions apply to all pages' : `Actions apply to selected page only`}
-                </div>
-              </div>
-              
-              {/* Table */}
-              <div>
-                <table className="w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Type
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Page
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Scheduled For
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Created At
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Published At
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Interval (min)
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {(() => {
-                      const filteredPosts = filterPageId === 'all' 
-                         ? scheduledPosts 
-                         : scheduledPosts.filter(post => post.pageId === filterPageId);
-                      
-                      return filteredPosts.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="px-4 py-4 text-center text-gray-500">
-                            {filterPageId === 'all' ? 'No scheduled posts yet' : 'No posts found for selected page'}
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredPosts.map(post => {
-                        const page = facebookPages.find(p => p.id === post.pageId);
-                        return (
-                        <tr key={post.id}>
-                          <td className="px-4 py-4 text-sm font-medium text-gray-900">
-                            {post.postType || post.title}
-                          </td>
-                          <td className="px-4 py-4 text-sm text-gray-900">
-                            <div className="flex items-center space-x-3">
-                              {page?.picture ? (
-                                <img
-                                  src={page.picture}
-                                  alt={page.name}
-                                  className="w-8 h-8 rounded-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
-                                  <span className="text-xs font-medium text-gray-600">
-                                    {(post.pageName || 'U').charAt(0).toUpperCase()}
-                                  </span>
-                                </div>
-                              )}
-                              <span>{post.pageName || 'Unknown'}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-4">
-                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                              post.status === 'scheduled' ? 'bg-yellow-100 text-yellow-800' :
-                              post.status === 'posted' ? 'bg-green-100 text-green-800' :
-                              post.status === 'failed' ? 'bg-red-100 text-red-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {post.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 text-sm text-gray-900">
-                            {new Date(post.scheduledFor).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                          </td>
-                          <td className="px-4 py-4 text-sm text-gray-900">
-                            {new Date(post.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                          </td>
-                          <td className="px-4 py-4 text-sm text-gray-900">
-                            {post.postedAt ? new Date(post.postedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '-'}
-                          </td>
-                          <td className="px-4 py-4 text-sm text-gray-900">
-                            {editingPostId === post.id ? (
-                              <div className="flex items-center space-x-2">
-                                <input
-                                  type="number"
-                                  value={editIntervalMinutes}
-                                  onChange={(e) => setEditIntervalMinutes(Number(e.target.value))}
-                                  className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                  min="1"
-                                />
-                                <button
-                                  onClick={() => updateScheduledPost(post.id, editIntervalMinutes)}
-                                  className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  onClick={cancelEditing}
-                                  className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            ) : (
-                              <span>{post.intervalMinutes || '-'}</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-4 text-sm font-medium">
-                            <div className="flex space-x-2">
-                              {post.status === 'posted' && post.facebookPostId ? (
-                                <button
-                                  onClick={() => {
-                                    const page = facebookPages.find(p => p.id === post.pageId);
-                                    if (page && post.facebookPostId) {
-                                      window.open(`https://www.facebook.com/${post.facebookPostId}`, '_blank');
-                                    }
-                                  }}
-                                  className="px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 text-xs font-medium"
-                                >
-                                  View Post
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => startEditingPost(post.id, post.intervalMinutes || 10)}
-                                  className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 text-xs font-medium"
-                                >
-                                  Edit
-                                </button>
-                              )}
-                              <button
-                                onClick={() => deleteScheduledPost(post.id)}
-                                className="px-3 py-1 bg-red-100 text-red-700 rounded-md hover:bg-red-200 text-xs font-medium"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                        );
-                       })
-                     );
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          )}
+
 
           {/* Toast Notification */}
           {toast && (
